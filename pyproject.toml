@@ -9,6 +9,5 @@ dependencies = [
     "dotenv>=0.9.9",
     "kalshi-python>=2.1.4",
     "kalshi-python-async>=3.18.0",
-    "openai>=2.38.0",
     "perplexityai>=0.34.0",
 ]
