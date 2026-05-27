@@ -1,6 +1,6 @@
 import os
 from typing import Any, Dict, Optional
-
+import aiohttp
 from dotenv import load_dotenv
 from kalshi_python_async import Configuration, KalshiClient
 
@@ -258,3 +258,64 @@ async def getExchangeStatus() -> Dict[str, Any]:
     """
     response = await client.get_exchange_status()
     return response.to_dict()
+
+
+"""PERPLEXITY"""
+async def searchPerplexity(
+    query: str,
+    recency: str = "month",
+    model: str = "sonar",
+    system_prompt: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Search for up-to-date information via Perplexity. Model options:
+    - sonar:                fast, cheap, good for quick fact checks
+    - sonar-pro:            balanced, more citations (default)
+    - sonar-reasoning-pro:  chain-of-thought, good for probability reasoning
+    - sonar-deep-research:  multi-step deep research, most expensive
+    """
+    default_system = (
+        "You are a research assistant helping analyze prediction markets. "
+        "Give concise, factual, up-to-date information with specific numbers, "
+        "dates, and sources where possible. Focus on information relevant to "
+        "assessing the probability of the event outcome."
+    )
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers={
+                "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt or default_system,
+                    },
+                    {"role": "user", "content": query},
+                ],
+                "search_recency_filter": recency,
+                "return_citations": True,
+            },
+        ) as resp:
+            data = await resp.json()
+
+            # sonar-reasoning-pro returns a <think>...</think> block
+            # in the content — split it out so it's readable separately
+            content = data["choices"][0]["message"]["content"]
+            thinking, answer = None, content
+            if "<think>" in content and "</think>" in content:
+                think_start = content.index("<think>") + len("<think>")
+                think_end = content.index("</think>")
+                thinking = content[think_start:think_end].strip()
+                answer = content[think_end + len("</think>"):].strip()
+
+            return {
+                "answer": answer,
+                "thinking": thinking,        # None for non-reasoning models
+                "citations": data.get("citations", []),
+                "model": data.get("model"),
+                "usage": data.get("usage"),
+            }

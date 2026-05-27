@@ -1,8 +1,6 @@
 import argparse
 import asyncio
 import json
-from typing import Any, Dict, Optional
-
 from functions import *
 
 
@@ -208,7 +206,28 @@ def main():
     )
     # ---- PARSE ----
     args = parser.parse_args()
-
+    
+    # ---- PERPLEXITY SEARCH ----
+    # ---- PERPLEXITY SEARCH ----
+    search_parser = subparsers.add_parser("search", help="Search for up-to-date info via Perplexity")
+    search_parser.add_argument("--query", required=True, help='Research question e.g. "Will the Fed cut rates in June 2026?"')
+    search_parser.add_argument(
+        "--model",
+        default="sonar-pro",
+        choices=["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"],
+        help="sonar=fast/cheap, sonar-pro=balanced, sonar-reasoning-pro=CoT, sonar-deep-research=full report"
+    )
+    search_parser.add_argument(
+        "--recency",
+        default="month",
+        choices=["hour", "day", "week", "month", "year"],
+        help="How recent the search results should be"
+    )
+    search_parser.add_argument(
+        "--system",
+        default=None,
+        help="Override the default system prompt"
+    )
     # ---- DISPATCH ----
     if args.command == "get-balance":
         result = asyncio.run(getbalance())
@@ -308,6 +327,7 @@ def main():
     elif args.command == "cancel-order":
         result = asyncio.run(cancelOrder(order_id=args.order_id))
         print_result(result)
+        
     elif args.command == "get-fills":
         result = asyncio.run(
             getFills(
@@ -376,6 +396,28 @@ def main():
         result = asyncio.run(getExchangeStatus())
         print_result(result)
 
-
+    elif args.command == "search":
+        result = asyncio.run(searchPerplexity(
+            query=args.query,
+            recency=args.recency,
+            model=args.model,
+            system_prompt=args.system,
+        ))
+    
+        # Show chain-of-thought separately if present (sonar-reasoning-pro)
+        if result["thinking"]:
+            print("=== Reasoning ===")
+            print(result["thinking"])
+            print()
+    
+        print("=== Answer ===")
+        print(result["answer"])
+    
+        if result["citations"]:
+            print("\n=== Citations ===")
+            for i, url in enumerate(result["citations"], 1):
+                print(f"[{i}] {url}")
+    
+        print(f"\n[model: {result['model']} | tokens: {result['usage']}]")
 if __name__ == "__main__":
     main()
