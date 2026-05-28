@@ -319,3 +319,75 @@ async def searchPerplexity(
                 "model": data.get("model"),
                 "usage": data.get("usage"),
             }
+
+async def getRiskSummary() -> Dict[str, Any]:
+    """Compute a simple risk snapshot from balance + open positions.
+    Call this before placing any order."""
+    balance_raw = await client.get_balance()
+    positions_raw = await client.get_positions(limit=100)
+    
+    balance = balance_raw.json()
+    positions = positions_raw.to_dict()
+
+    available = balance.get("balance", 0)  # cents
+    
+    open_positions = [
+        p for p in positions.get("market_positions", [])
+        if p.get("position", 0) != 0
+    ]
+
+    total_exposure = sum(
+        abs(p.get("position", 0)) * p.get("market_exposure", 100)
+        for p in open_positions
+    )
+
+    return {
+        "available_balance_cents": available,
+        "available_balance_dollars": round(available / 100, 2),
+        "open_position_count": len(open_positions),
+        "total_exposure_cents": total_exposure,
+        "total_exposure_dollars": round(total_exposure / 100, 2),
+        "exposure_pct_of_balance": round(total_exposure / available * 100, 2) if available else 0,
+        "positions": open_positions,
+    }
+
+
+def kellySize(
+    prob: float,       # your estimated probability (0-1)
+    yes_price: int,    # kalshi price in cents (1-99)
+    balance: int,      # available balance in cents
+    fraction: float = 0.25,  # fractional kelly — 0.25 is conservative
+    max_pct: float = 0.10,   # hard cap: never risk more than this % of balance
+) -> Dict[str, Any]:
+    """Calculate Kelly-optimal contract count for a given edge.
+    
+    fraction=0.25 means quarter-Kelly which is standard for uncertain edges.
+    max_pct=0.10 hard caps at 10% of balance regardless of Kelly output.
+    """
+    p = prob
+    q = 1 - p
+    b = (100 - yes_price) / yes_price  # payout ratio (win/loss)
+
+    kelly_fraction = (p * b - q) / b  # standard Kelly formula
+    
+    if kelly_fraction <= 0:
+        return {
+            "contracts": 0,
+            "reason": "No edge — Kelly fraction is negative",
+            "kelly_fraction": round(kelly_fraction, 4),
+        }
+
+    fractional_kelly = kelly_fraction * fraction
+    capped_kelly = min(fractional_kelly, max_pct)
+
+    dollar_risk = balance * capped_kelly
+    contracts = int(dollar_risk / yes_price)  # yes_price is cost per contract in cents
+
+    return {
+        "contracts": max(0, contracts),
+        "kelly_fraction": round(kelly_fraction, 4),
+        "fractional_kelly": round(fractional_kelly, 4),
+        "capped_at_max_pct": fractional_kelly > max_pct,
+        "dollar_risk_cents": round(dollar_risk, 2),
+        "dollar_risk_dollars": round(dollar_risk / 100, 2),
+    }

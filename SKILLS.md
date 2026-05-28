@@ -34,6 +34,12 @@ Series  (e.g. FED)
 When a user describes a topic rather than a ticker, start with `get-events` or `get-markets`
 to discover the right ticker before placing orders.
 
+## Search Cadence
+- Run `search --model sonar` every loop iteration for fast news checks
+- Run `search --model sonar-deep-research` at session start and when:
+  - A position moves > 10 cents against you
+  - A new market is being evaluated for entry
+  - Recency should be `day` or `week` for fast-moving events
 ---
 
 ## Command Reference

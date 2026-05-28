@@ -228,6 +228,18 @@ def main():
         default=None,
         help="Override the default system prompt"
     )
+
+
+    # ---- RISK SUMMARY ----
+    subparsers.add_parser("get-risk", help="Get balance + exposure snapshot before trading")
+    
+    # ---- KELLY SIZING ----
+    kelly_parser = subparsers.add_parser("kelly", help="Calculate Kelly-optimal position size")
+    kelly_parser.add_argument("--prob", required=True, type=float, help="Your probability estimate (0-1), e.g. 0.70")
+    kelly_parser.add_argument("--yes-price", required=True, type=int, help="Current YES price in cents (1-99)")
+    kelly_parser.add_argument("--balance", required=True, type=int, help="Available balance in cents")
+    kelly_parser.add_argument("--fraction", type=float, default=0.25, help="Kelly fraction (default 0.25 = quarter Kelly)")
+    kelly_parser.add_argument("--max-pct", type=float, default=0.10, help="Hard cap as pct of balance (default 0.10)")
     # ---- DISPATCH ----
     if args.command == "get-balance":
         result = asyncio.run(getbalance())
@@ -419,5 +431,20 @@ def main():
                 print(f"[{i}] {url}")
     
         print(f"\n[model: {result['model']} | tokens: {result['usage']}]")
+    
+    elif args.command == "get-risk":
+        result = asyncio.run(getRiskSummary())
+        print_result(result)
+    
+    elif args.command == "kelly":
+        result = kellySize(
+            prob=args.prob,
+            yes_price=args.yes_price,
+            balance=args.balance,
+            fraction=args.fraction,
+            max_pct=args.max_pct,
+        )
+        print_result(result)
+        
 if __name__ == "__main__":
     main()
