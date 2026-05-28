@@ -204,8 +204,7 @@ def main():
     subparsers.add_parser(
         "get-exchange-status", help="Check if the exchange is open, halted, or closed"
     )
-    # ---- PARSE ----
-    args = parser.parse_args()
+
     
     # ---- PERPLEXITY SEARCH ----
     # ---- PERPLEXITY SEARCH ----
@@ -240,6 +239,8 @@ def main():
     kelly_parser.add_argument("--balance", required=True, type=int, help="Available balance in cents")
     kelly_parser.add_argument("--fraction", type=float, default=0.25, help="Kelly fraction (default 0.25 = quarter Kelly)")
     kelly_parser.add_argument("--max-pct", type=float, default=0.10, help="Hard cap as pct of balance (default 0.10)")
+    # ---- PARSE ----
+    args = parser.parse_args()
     # ---- DISPATCH ----
     if args.command == "get-balance":
         result = asyncio.run(getbalance())
