@@ -33,6 +33,10 @@ function toNumber(value: string | undefined): number | undefined {
   return parsed;
 }
 
+function toBoolean(value: boolean | undefined): boolean | undefined {
+  return value === undefined ? undefined : value;
+}
+
 export function createKalshiCommand(): Command {
   const kalshi = new Command("kalshi").description("Kalshi trading and market commands");
 
@@ -148,25 +152,97 @@ export function createKalshiCommand(): Command {
   kalshi
     .command("place-order")
     .requiredOption("--ticker <ticker>")
+    .requiredOption("--action <action>")
     .requiredOption("--side <side>")
-    .requiredOption("--type <type>")
     .requiredOption("--count <count>")
     .option("--yes-price <yesPrice>")
     .option("--no-price <noPrice>")
     .option("--expiration-ts <expirationTs>")
+    .option("--time-in-force <timeInForce>")
+    .option("--buy-max-cost <buyMaxCost>")
+    .option("--reduce-only")
+    .option("--post-only")
     .option("--pretty", "Print formatted output")
     .action(async (options) => {
       const params = {
         ticker: options.ticker,
+        action: options.action,
         side: options.side,
-        type: options.type,
         count: toNumber(options.count) ?? 0,
         yes_price: toNumber(options.yesPrice),
         no_price: toNumber(options.noPrice),
         expiration_ts: toNumber(options.expirationTs),
+        time_in_force: options.timeInForce,
+        buy_max_cost: toNumber(options.buyMaxCost),
+        reduce_only: toBoolean(options.reduceOnly),
+        post_only: toBoolean(options.postOnly),
       };
       await runLoggedCommand({
         command: "kalshi place-order",
+        args: params,
+        pretty: options.pretty,
+        run: () => placeOrder(params),
+      });
+    });
+
+  kalshi
+    .command("buy <ticker>")
+    .requiredOption("--side <side>")
+    .requiredOption("--count <count>")
+    .option("--yes-price <yesPrice>")
+    .option("--no-price <noPrice>")
+    .option("--expiration-ts <expirationTs>")
+    .option("--time-in-force <timeInForce>")
+    .option("--buy-max-cost <buyMaxCost>")
+    .option("--post-only")
+    .option("--pretty", "Print formatted output")
+    .action(async (ticker, options) => {
+      const params = {
+        ticker,
+        action: "buy",
+        side: options.side,
+        count: toNumber(options.count) ?? 0,
+        yes_price: toNumber(options.yesPrice),
+        no_price: toNumber(options.noPrice),
+        expiration_ts: toNumber(options.expirationTs),
+        time_in_force: options.timeInForce,
+        buy_max_cost: toNumber(options.buyMaxCost),
+        post_only: toBoolean(options.postOnly),
+      };
+      await runLoggedCommand({
+        command: "kalshi buy",
+        args: params,
+        pretty: options.pretty,
+        run: () => placeOrder(params),
+      });
+    });
+
+  kalshi
+    .command("sell <ticker>")
+    .requiredOption("--side <side>")
+    .requiredOption("--count <count>")
+    .option("--yes-price <yesPrice>")
+    .option("--no-price <noPrice>")
+    .option("--expiration-ts <expirationTs>")
+    .option("--time-in-force <timeInForce>")
+    .option("--reduce-only", "Only sell existing positions", true)
+    .option("--post-only")
+    .option("--pretty", "Print formatted output")
+    .action(async (ticker, options) => {
+      const params = {
+        ticker,
+        action: "sell",
+        side: options.side,
+        count: toNumber(options.count) ?? 0,
+        yes_price: toNumber(options.yesPrice),
+        no_price: toNumber(options.noPrice),
+        expiration_ts: toNumber(options.expirationTs),
+        time_in_force: options.timeInForce,
+        reduce_only: toBoolean(options.reduceOnly),
+        post_only: toBoolean(options.postOnly),
+      };
+      await runLoggedCommand({
+        command: "kalshi sell",
         args: params,
         pretty: options.pretty,
         run: () => placeOrder(params),

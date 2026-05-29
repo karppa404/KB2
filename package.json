@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run src/cli/index.ts",
+    "dashboard": "bun run src/dashboard/server.ts",
     "build": "bun build src/cli/index.ts --compile --outfile opencode",
     "test": "bun test"
   },

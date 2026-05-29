@@ -8,6 +8,15 @@ import { runLoggedCommand } from "./shared";
 
 const program = new Command();
 
+function parseJsonField(value: string | null): unknown {
+  if (value === null) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 program
   .name("opencode")
   .description("Agent CLI for Kalshi trading + research")
@@ -35,10 +44,14 @@ program
       args,
       pretty: options.pretty,
       run: async () => {
-        if (options.command) {
-          return getHistoryByCommand(options.command, parsedLimit);
-        }
-        return getHistory(parsedLimit);
+        const rows = options.command
+          ? getHistoryByCommand(options.command, parsedLimit)
+          : getHistory(parsedLimit);
+        return rows.map((row) => ({
+          ...row,
+          args: parseJsonField(row.args),
+          result: parseJsonField(row.result),
+        }));
       },
     });
   });

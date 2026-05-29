@@ -1,30 +1,7 @@
 import { logCommand } from "../db";
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function printPretty(result: unknown): void {
-  if (Array.isArray(result)) {
-    if (result.length > 0 && result.every((item) => isPlainObject(item))) {
-      console.table(result);
-      return;
-    }
-    console.log(result);
-    return;
-  }
-
-  if (isPlainObject(result)) {
-    const entries = Object.entries(result);
-    if (entries.length > 0 && entries.every(([, value]) => !isPlainObject(value) && !Array.isArray(value))) {
-      console.table([result]);
-      return;
-    }
-    console.dir(result, { depth: null });
-    return;
-  }
-
-  console.log(result);
+  console.log(JSON.stringify(result, null, 2));
 }
 
 export async function runLoggedCommand(opts: {

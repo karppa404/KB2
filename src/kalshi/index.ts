@@ -1,8 +1,10 @@
 import {
   CommunicationsApi,
   Configuration,
+  type EventData,
   EventsApi,
   ExchangeApi,
+  type Market,
   MarketApi,
   OrdersApi,
   PortfolioApi,
@@ -91,25 +93,102 @@ export async function searchMarketsByTitle(
     cursor?: string;
   },
 ) {
-  const response = await getMarkets({
-    ...params,
-    limit: params?.limit ?? 100,
-  });
-
-  const markets = Array.isArray(response.markets) ? response.markets : [];
-
   const normalized = keyword.trim().toLowerCase();
-  const filtered = markets.filter((market) => {
-    const title = typeof market.title === "string" ? market.title : "";
-    return title.toLowerCase().includes(normalized);
-  });
+  const requestedLimit = params?.limit ?? 100;
+  const status = params?.status ?? "open";
+  const eventStatus = toEventStatus(status);
+  const matches: Array<Market & { event_title?: string; event_sub_title?: string }> = [];
+  const seenTickers = new Set<string>();
+  let cursor = params?.cursor;
+
+  for (let page = 0; page < 10 && matches.length < requestedLimit; page += 1) {
+    const response = await eventsApi.getEvents(
+      200,
+      cursor,
+      true,
+      undefined,
+      eventStatus as never,
+      params?.seriesTicker,
+      undefined,
+      undefined,
+    );
+
+    const events = Array.isArray(response.data.events) ? response.data.events : [];
+    for (const event of events) {
+      for (const market of getMatchingMarkets(event, normalized, status)) {
+        if (seenTickers.has(market.ticker)) continue;
+        seenTickers.add(market.ticker);
+        matches.push({
+          ...market,
+          event_title: event.title,
+          event_sub_title: event.sub_title,
+        });
+        if (matches.length >= requestedLimit) break;
+      }
+      if (matches.length >= requestedLimit) break;
+    }
+
+    cursor = response.data.cursor || undefined;
+    if (!cursor) break;
+  }
 
   return {
-    ...response,
-    markets: filtered,
+    cursor: cursor ?? "",
+    markets: matches,
     searchKeyword: keyword,
-    totalMatches: filtered.length,
+    totalMatches: matches.length,
   };
+}
+
+function getMatchingMarkets(
+  event: EventData,
+  normalizedKeyword: string,
+  status: string,
+): Array<Market> {
+  const eventMatches = includesKeyword(
+    [event.event_ticker, event.series_ticker, event.title, event.sub_title],
+    normalizedKeyword,
+  );
+  const markets = Array.isArray(event.markets) ? event.markets : [];
+
+  return markets.filter((market) => {
+    if (!marketMatchesStatus(market, status)) return false;
+    if (eventMatches) return true;
+    return includesKeyword(
+      [
+        market.ticker,
+        market.event_ticker,
+        market.title,
+        market.subtitle,
+        market.yes_sub_title,
+        market.no_sub_title,
+        market.rules_primary,
+        market.rules_secondary,
+      ],
+      normalizedKeyword,
+    );
+  });
+}
+
+function marketMatchesStatus(market: Market, status: string): boolean {
+  if (status === "active") return market.status === "active";
+  if (status === "open") return market.status === "active";
+  if (status === "finalized") return market.status === "finalized";
+  if (status === "settled") return market.status === "finalized";
+  return market.status === status;
+}
+
+function toEventStatus(status: string): string {
+  if (status === "active") return "open";
+  if (status === "finalized") return "settled";
+  return status;
+}
+
+function includesKeyword(values: Array<unknown>, normalizedKeyword: string): boolean {
+  return values.some(
+    (value) =>
+      typeof value === "string" && value.toLowerCase().includes(normalizedKeyword),
+  );
 }
 
 export async function getMarket(ticker: string) {
@@ -124,12 +203,16 @@ export async function getOrderbook(ticker: string, depth?: number) {
 
 export async function placeOrder(params: {
   ticker: string;
+  action: string;
   side: string;
-  type: string;
   count: number;
   yes_price?: number;
   no_price?: number;
   expiration_ts?: number;
+  time_in_force?: string;
+  buy_max_cost?: number;
+  reduce_only?: boolean;
+  post_only?: boolean;
 }) {
   const response = await ordersApi.createOrder(params as never);
   return response.data;
