@@ -1,0 +1,29 @@
+{
+  "name": "kb2",
+  "module": "./src/cli/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/cli/index.ts",
+    "dashboard": "bun run src/dashboard/server.ts",
+    "build": "bun build src/cli/index.ts --compile --outfile opencode",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.22.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@perplexity-ai/perplexity_ai": "^0.3.0",
+    "@libsql/client": "^0.17.3",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "kalshi-typescript": "^3.19.0",
+    "zod": "^4.4.3"
+  }
+}
