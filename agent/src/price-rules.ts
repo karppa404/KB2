@@ -15,7 +15,7 @@ export type PriceRule = {
  id:string;strategyId:string;marketId:string;outcome:"yes"|"no";quantity:number;kind:"entry"|"take_profit"|"stop_loss";
  triggerPrice:number;maxSlippageUsd:number;expiresAt:string;market:Market;
 };
-interface Row {id:string;strategy_id:string;group_key:string;mode:string;body:string;status:string;trade_id:string|null;error:string|null;created_at:string;updated_at:string;}
+interface Row {id:string;strategy_id:string;group_key:string;mode:"paper"|"live";body:string;status:string;trade_id:string|null;error:string|null;created_at:string;updated_at:string;}
 const now=()=>new Date().toISOString();
 export class PriceRules {
  constructor(private service:AgentService) {}
@@ -82,7 +82,7 @@ export class PriceRules {
    if(!claimed)continue;
    try {
     const limit=rule.kind==="entry"?rule.triggerPrice:Math.max(.0001,Math.floor((quote!-rule.maxSlippageUsd+1e-10)*10000)/10000);
-    const trade=await this.service.submit({operationId:`rule-${rule.id}`,strategyId:strategy.id,venue:"kalshi",marketId:rule.marketId,outcome:rule.outcome,action:rule.kind==="entry"?"buy":"sell",quantity:rule.quantity,price:limit,expiresAt:rule.expiresAt,rationale:`${rule.kind} price rule ${rule.id}: observed ${quote}, trigger ${rule.triggerPrice}`});
+    const trade=await this.service.submit({operationId:`rule-${rule.id}`,strategyId:strategy.id,venue:"kalshi",marketId:rule.marketId,outcome:rule.outcome,action:rule.kind==="entry"?"buy":"sell",quantity:rule.quantity,price:limit,expiresAt:rule.expiresAt,rationale:`${rule.kind} price rule ${rule.id}: observed ${quote}, trigger ${rule.triggerPrice}`},row.mode);
     const filled=trade.result?(JSON.parse(trade.result) as OrderResult).filledQuantity:0;
     const status=["unknown","submitting"].includes(trade.status)?"uncertain":trade.status==="rejected"?"failed":"executed";
     this.service.store.atomic(()=>{

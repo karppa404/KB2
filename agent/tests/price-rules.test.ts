@@ -57,3 +57,12 @@ test("closing a holding cancels waiting protection before a later re-entry",asyn
  await s.submit({operationId:"manual-exit",strategyId:"econ",venue:"kalshi",marketId:"CPI",outcome:"yes",action:"sell",quantity:2,price:.48,rationale:"Close holding"});
  await s.priceRules.process();expect(s.priceRules.list().map(row=>row.status)).toEqual(["canceled","canceled"]);expect(s.trades()).toHaveLength(2);
 });
+
+test("a paper rule cannot dispatch live if mode changes during its quote refresh",async()=>{
+ const {service:s,rule,writes}=setup(true);s.saveStrategy({...s.strategy("econ"),mode:"paper"});await s.priceRules.create({...rule,kind:"entry",triggerPrice:.6});
+ let resolveQuote!:(market:Market)=>void;let quoteRequested!:()=>void;const started=new Promise<void>(resolve=>{quoteRequested=resolve;});
+ s.exchanges.kalshi.market=()=>new Promise<Market>(resolve=>{resolveQuote=resolve;quoteRequested();});
+ const processing=s.priceRules.process();await started;s.saveStrategy({...s.strategy("econ"),mode:"live"});
+ resolveQuote({venue:"kalshi",id:"CPI",title:"CPI",category:"economics",yesBid:.48,yesAsk:.5,yesBidSize:500,yesAskSize:500,volume24hContracts:20000,rules:"Official release"});
+ await processing;expect(writes()).toBe(0);expect(s.trades()).toHaveLength(0);expect(s.priceRules.list()[0]?.status).toBe("failed");
+});

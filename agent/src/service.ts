@@ -88,11 +88,12 @@ export class AgentService {
     }
     return {...result,markets};
   }
-  async submit(input: unknown) {
+  async submit(input: unknown,expectedMode?:Strategy["mode"]) {
     const r=tradeSchema.parse(input); const fingerprint=createHash("sha256").update(JSON.stringify(r)).digest("hex");
     const duplicate=this.store.one<Trade>("SELECT * FROM trades WHERE id=?",r.operationId);
-    if(duplicate) {if(duplicate.fingerprint!==fingerprint) throw new Error("Operation ID already used with different parameters");return duplicate;}
+    if(duplicate) {if(expectedMode&&duplicate.mode!==expectedMode)throw new Error("Execution mode does not match the originating rule");if(duplicate.fingerprint!==fingerprint) throw new Error("Operation ID already used with different parameters");return duplicate;}
     const s=this.strategy(r.strategyId);
+    if(expectedMode&&s.mode!==expectedMode)throw new Error("Execution mode does not match the originating rule");
     if(!s.enabled) throw new Error("Strategy is paused");
     if(!s.venues.includes(r.venue)) throw new Error("Venue is not allowed by strategy");
     if(s.mode==="live" && !this.liveAllowed) throw new Error("Live execution requires KB2_ENABLE_LIVE=true at server startup");
@@ -107,8 +108,9 @@ export class AgentService {
     const now=time();
     const inserted=this.store.atomic(()=>{
       const repeated=this.store.one<Trade>("SELECT * FROM trades WHERE id=?",r.operationId);
-      if(repeated) {if(repeated.fingerprint!==fingerprint) throw new Error("Operation ID already used with different parameters");return false;}
+      if(repeated) {if(expectedMode&&repeated.mode!==expectedMode)throw new Error("Execution mode does not match the originating rule");if(repeated.fingerprint!==fingerprint) throw new Error("Operation ID already used with different parameters");return false;}
       const current=this.strategy(s.id);
+      if(expectedMode&&current.mode!==expectedMode)throw new Error("Execution mode does not match the originating rule");
       if(!current.enabled || JSON.stringify(current)!==JSON.stringify(s)) throw new Error("Strategy changed; reload it before trading");
       if(this.trades(s.id).some(t=>t.status==="unknown" || t.status==="submitting")) throw new Error("Resolve uncertain or submitting orders before trading again");
       const l=this.ledger(s.id); const notional=money(r.price*r.quantity);
