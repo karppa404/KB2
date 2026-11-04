@@ -139,6 +139,7 @@ export class KalshiExchange implements Exchange {
       for (const raw of array(page.events)) {
         const event = object(raw), series = text(event.series_ticker);
         if (!classified.has(series)) classified.set(series, await this.seriesCategory(series));
+        if(selected.length&&!selected.includes(classified.get(series)! as Category))continue;
         for (const market of array(event.markets)) {
           if (object(market).market_type !== "binary") continue;
           const mapped = this.mapMarket(market, classified.get(series)!);
