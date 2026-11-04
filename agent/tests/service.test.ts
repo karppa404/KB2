@@ -3,12 +3,12 @@ import { AgentService, localClock, type Strategy } from "../src/service";
 import { Store } from "../src/store";
 import { ExchangeError, type Exchange, type Market } from "../src/types";
 
-const market: Market={venue:"kalshi",id:"T",title:"Rain?",category:"weather",yesBid:.4,yesAsk:.5,rules:"Rain at station"};
-const strategy={id:"weather",name:"Weather",instructions:"Buy calibrated weather forecasts",categories:["weather"],venues:["kalshi"],timezone:"America/Chicago",enabled:true,autoReactivate:true,allowMarketMaking:true,maxOrderUsd:10,maxExposureUsd:15,dailyBuyLimitUsd:20} as const;
+const market: Market={venue:"kalshi",id:"T",title:"Rain?",category:"weather",yesBid:.4,yesAsk:.5,volume24hContracts:20000,yesBidSize:500,yesAskSize:500,rules:"Rain at station"};
+const strategy={id:"weather",name:"Weather",instructions:"Buy calibrated weather forecasts",categories:["weather"],venues:["kalshi"],timezone:"America/Chicago",enabled:true,autoReactivate:true,allowMarketMaking:true,liquidity:{maxSpreadUsd:.2,minVolume24hContracts:10000,minBestDepthContracts:100},maxOrderUsd:10,maxExposureUsd:15,dailyBuyLimitUsd:20} as const;
 const trade={operationId:"one",strategyId:"weather",venue:"kalshi",marketId:"T",outcome:"yes",action:"buy",price:.5,quantity:10,rationale:"Forecast exceeds offer"} as const;
 function setup(live=false,place?:Exchange["place"]) {
  const exchange:Exchange={venue:"kalshi",discover:async()=>({markets:[market]}),market:async()=>market,place:place??(async()=>({orderId:"O",status:"open",filledQuantity:0})),cancel:async()=>{},order:async()=>({orderId:"O",status:"filled",filledQuantity:10,averagePrice:.5}),positions:async()=>[],balance:async()=>100};
- const service=new AgentService(new Store(":memory:"),{kalshi:exchange,polymarket:{...exchange,venue:"polymarket"}},live);
+ const service=new AgentService(new Store(":memory:"),{kalshi:exchange},live);
  service.saveStrategy({...strategy,mode:live?"live":"paper"}); return service;
 }
 test("paper orders reserve/fill budget, idempotency prevents duplicates and parameter reuse",async()=>{
@@ -28,7 +28,7 @@ test("concurrent identical live requests place exactly once and uncertain result
 });
 test("permissions, categories, budgets and owned holdings enforced before exchange writes",async()=>{
  const s=setup();await expect(s.submit({...trade,action:"sell"})).rejects.toThrow("holdings");
- s.saveStrategy({...s.strategy("weather"),categories:["sports"]});
+ s.saveStrategy({...s.strategy("weather"),categories:["politics"]});
  await expect(s.submit(trade)).rejects.toThrow("category");
  s.saveStrategy({...s.strategy("weather"),enabled:false});await expect(s.submit(trade)).rejects.toThrow("paused");
 });
@@ -84,4 +84,21 @@ test("late-night daily sessions catch up once after local midnight",()=>{
  const row=s.store.one<{due_key:string}>("SELECT due_key FROM runs WHERE id=?",claims[0].runId);expect(row?.due_key).toBe("weather:2026-11-04");
  s.finishRun(claims[0].runId,"Caught up");expect(s.claimDue(new Date("2026-11-05T07:00:00Z"))).toHaveLength(0);
  const later=setup();later.saveStrategy({...later.strategy("weather"),dailyAt:"23:30"});expect(later.claimDue(new Date("2026-11-05T08:00:00Z"))).toHaveLength(0);
+});
+
+test("new entries and discovery require verified two-sided liquidity, while sells may exit",async()=>{
+ const s=setup();s.saveStrategy({...s.strategy("weather"),liquidity:{maxSpreadUsd:.03,minVolume24hContracts:10000,minBestDepthContracts:100}});
+ let book:Market={...market,yesBid:.48,yesAsk:.5};s.exchanges.kalshi.market=async()=>book;s.exchanges.kalshi.discover=async()=>({markets:[book],cursor:"next"});
+ expect((await s.discover("weather","kalshi")).markets).toHaveLength(1);
+ for(const change of [{yesBid:.4},{volume24hContracts:9999},{yesBidSize:99},{yesAskSize:99},{volume24hContracts:undefined},{yesAsk:null},{category:"sports" as const}]) {
+  const good=book;book={...good,...change};await expect(s.submit(trade)).rejects.toThrow();expect((await s.discover("weather","kalshi")).markets).toHaveLength(0);book=good;
+ }
+ await s.submit(trade);book={...book,yesBid:.4,volume24hContracts:0,yesBidSize:1,yesAskSize:1};
+ expect((await s.submit({...trade,operationId:"exit",action:"sell",price:.4})).status).toBe("filled");
+ expect(s.ledger("weather").positions).toHaveLength(0);
+});
+test("sports and other venues cannot be configured, and order size must fit visible depth",async()=>{
+ const s=setup();expect(()=>s.saveStrategy({...s.strategy("weather"),venues:["polymarket"]})).toThrow();expect(()=>s.saveStrategy({...s.strategy("weather"),categories:["sports"]})).toThrow();
+ s.exchanges.kalshi.market=async()=>({...market,yesBidSize:100,yesAskSize:100});
+ await expect(s.submit({...trade,quantity:101,price:.01})).rejects.toThrow("depth");
 });

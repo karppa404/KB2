@@ -1,6 +1,6 @@
 # KB2 agent desk
 
-A standalone agent trading package for Kalshi and Polymarket US, with user-authored strategies, Python forecasting, T3 orchestration v2 procedures, and a local control desk. It coexists with the original kb2 CLI/dashboard without changing their configuration or source.
+A standalone agent trading package for Kalshi, with user-authored strategies, Python forecasting, T3 orchestration v2 procedures, and a local control desk. It coexists with the original kb2 CLI/dashboard without changing their configuration or source.
 
 ```sh
 cd agent
@@ -13,13 +13,13 @@ bun run test
 bun run typecheck
 ```
 
-The desk starts empty. Create a strategy, select allowed market categories and exchanges, choose an IANA timezone and limits, and write your own trading thesis. Defaults are paper execution, paused, 03:00 local exploration, and no automatic follow-ups. Enable and install the T3 clock using [the T3 procedure](docs/t3.md). An agent can request reasoned follow-ups only when allowed. Feedback on individual trades or the strategy is carried into the next run.
+The desk starts with a “Liquid non-sports” strategy for Kalshi: politics, economics, weather, technology and entertainment. It requires at least 10,000 contracts of 24-hour volume, a spread no wider than $0.03, and at least 100 contracts at each best bid/ask. Entry size must also fit that displayed depth. Discovery and every new buy enforce these checks against a fresh book; missing liquidity data fails closed. Sells can reduce existing holdings after liquidity deteriorates. Edit these thresholds, timezone and spending limits in the dashboard. Defaults are paper execution, paused, 03:00 local exploration, and no automatic follow-ups. Enable and install the T3 clock using [the T3 procedure](docs/t3.md). An agent can request reasoned follow-ups only when allowed. Feedback on individual trades or the strategy is carried into the next run.
 
 [Python modeling](docs/modeling.md) covers pandas/NumPy/scikit-learn setup, editable source, JSON forecasts, version hashes, chronological evaluation and costs. Python runs as your local user, **not in a sandbox**. Use only trusted model code. Removing exchange variables from the child environment does not prevent code from reading your files.
 
 ## Credentials
 
-The package reads root `.env`, then `agent/.env`, without overriding variables already supplied by the process. Local files and state are ignored by Git. See [.env.example](.env.example). The Polymarket adapter is **Polymarket US**, using Ed25519 `X-PM-*` headers, not the international wallet/CLOB API.
+The package reads root `.env`, then `agent/.env`, without overriding variables already supplied by the process. Local files and state are ignored by Git. See [.env.example](.env.example). Only Kalshi is supported. Other venue inputs are rejected by the tool and model schemas. Existing history is retained; no other exchange is contacted.
 
 `KB2_ENABLE_LIVE=true` is a separate startup gate. It does not change a paper strategy into a live one. After any strategy trades, its mode and starting capital cannot change; create another strategy. No live execution or external schedule is activated by installation.
 

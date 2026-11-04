@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { Store } from "./store";
 import { AgentService } from "./service";
 import { createExchanges } from "./exchanges";
+import { configureDefaultStrategy } from "./preset";
 
 // Bun loads the cwd .env itself; explicit paths also support launching from a host's cwd.
 for(const file of [resolve(import.meta.dir,"../../.env"),resolve(import.meta.dir,"../.env")]) {
@@ -13,4 +14,4 @@ for(const file of [resolve(import.meta.dir,"../../.env"),resolve(import.meta.dir
     if(process.env[match[1]!]===undefined)process.env[match[1]!]=value;
   }
 }
-export function createService() { return new AgentService(new Store(),createExchanges()); }
+export function createService() { const service=new AgentService(new Store(),createExchanges());configureDefaultStrategy(service);return service; }

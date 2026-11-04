@@ -54,21 +54,15 @@ function secret(env: Env, prefix: string): string | undefined {
   if (!file) return undefined;
   try { return readFileSync(file, "utf8").trim(); } catch { throw failure("credentials_invalid"); }
 }
-function polymarketSecret(env: Env): string | undefined {
-  if (env.POLYMARKET_API_SECRET) return env.POLYMARKET_API_SECRET.trim();
-  if (!env.POLYMARKET_API_SECRET_FILE) return undefined;
-  try { return readFileSync(env.POLYMARKET_API_SECRET_FILE, "utf8").trim(); } catch { throw failure("credentials_invalid"); }
-}
 export function credentialsStatus(env: Env = process.env) {
   const hasKey = (p: string) => Boolean(env[`${p}_PRIVATE_KEY_PEM`] || env[`${p}_PRIVATE_KEY`] || env[`${p}_PRIVATE_KEY_FILE`] || env[`${p}_PRIVATE_KEY_PATH`]);
   const status = (missing: string[]) => ({ configured: missing.length === 0, missing });
   return {
     kalshi: status([!(env.KALSHI_API_ID ?? env.KALSHI_API_KEY_ID ?? env.KALSHI_API_KEY) && "KALSHI_API_KEY_ID", !hasKey("KALSHI") && "KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_FILE"].filter((v): v is string => Boolean(v))),
-    polymarket: status([!env.POLYMARKET_API_KEY_ID && "POLYMARKET_API_KEY_ID", !(env.POLYMARKET_API_SECRET || env.POLYMARKET_API_SECRET_FILE) && "POLYMARKET_API_SECRET or POLYMARKET_API_SECRET_FILE"].filter((v): v is string => Boolean(v))),
   };
 }
 const orderSchema = z.object({
-  venue: z.enum(["kalshi", "polymarket"]), marketId: z.string().min(1), outcome: z.enum(["yes", "no"]),
+  venue: z.literal("kalshi"), marketId: z.string().min(1), outcome: z.enum(["yes", "no"]),
   action: z.enum(["buy", "sell"]), price: z.number().gt(0).lt(1), quantity: z.number().positive().max(Number.MAX_SAFE_INTEGER),
   postOnly: z.boolean(), clientOrderId: z.string().min(1), tokenId: z.string().min(1).optional(), expiresAt: z.iso.datetime({ offset: true }).optional(),
 });
@@ -130,7 +124,8 @@ export class KalshiExchange implements Exchange {
     return { venue: this.venue, id: text(m.ticker), title: text(m.title), category: classification,
       yesBid: quote(m.yes_bid_dollars), yesAsk: quote(m.yes_ask_dollars),
       rules: [text(m.rules_primary), typeof m.rules_secondary === "string" ? m.rules_secondary : ""].filter(Boolean).join("\n\n"),
-      closesAt: m.close_time == null ? undefined : text(m.close_time), minSize: 0.01 };
+      closesAt: m.close_time == null ? undefined : text(m.close_time), minSize: 0.01,
+      volume24hContracts: m.volume_24h_fp == null ? undefined : number(m.volume_24h_fp) };
   }
   private async seriesCategory(series: unknown): Promise<Market["category"]> {
     const result = object(await this.request(`/series/${encodeURIComponent(text(series))}`));
@@ -164,13 +159,14 @@ export class KalshiExchange implements Exchange {
         const prices = array(levels).map(level => {
           const row = array(level);
           if (row.length !== 2) throw failure("unsupported_response");
-          const p = price(row[0]); return number(row[1]) > 0 ? p : null;
-        }).filter((p): p is number => p !== null);
-        return prices.length ? Math.max(...prices) : null;
+          const p = price(row[0]), size=number(row[1]); return {price:p,size};
+        }).filter(level=>level.size>0);
+        const bestPrice=prices.length ? Math.max(...prices.map(level=>level.price)) : null;
+        return {price:bestPrice,size:prices.filter(level=>level.price===bestPrice).reduce((sum,level)=>sum+level.size,0)};
       };
-      result.yesBid = best(book.yes_dollars);
-      const noBid = best(book.no_dollars);
-      result.yesAsk = noBid === null ? null : Number((1 - noBid).toFixed(6));
+      const yes=best(book.yes_dollars), no=best(book.no_dollars);
+      result.yesBid=yes.price; result.yesBidSize=yes.size;
+      result.yesAsk=no.price===null?null:Number((1-no.price).toFixed(6));result.yesAskSize=no.size;
       return result;
     });
   }
@@ -247,178 +243,6 @@ export class KalshiExchange implements Exchange {
   }
 }
 
-function usd(value: unknown, bounded = false): number {
-  const amount = object(value);
-  if (amount.currency !== "USD") throw failure("unsupported_currency");
-  return bounded ? price(amount.value) : number(amount.value);
-}
-function aligned(value: number, step: number) {
-  return step > 0 && Math.abs(value / step - Math.round(value / step)) < 1e-7;
-}
-
-export class PolymarketExchange implements Exchange {
-  readonly venue = "polymarket" as const;
-  private readonly transport: Fetch;
-  private readonly env: Env;
-  constructor(options: { fetch?: Fetch; env?: Env } = {}) {
-    this.env = options.env ?? process.env;
-    this.transport = timedFetch(options.fetch ?? fetch);
-  }
-  private auth(method: string, path: string): Record<string, string> {
-    const id = this.env.POLYMARKET_API_KEY_ID, encoded = polymarketSecret(this.env);
-    if (!id || !encoded) throw failure("credentials_missing");
-    try {
-      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw failure("credentials_invalid");
-      const bytes = Buffer.from(encoded, "base64");
-      if (bytes.length !== 32 && bytes.length !== 64) throw failure("credentials_invalid");
-      // Ed25519 PKCS#8 prefix followed by the first 32 bytes (the signing seed).
-      const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes.subarray(0, 32)]), format: "der", type: "pkcs8" });
-      const timestamp = String(Date.now());
-      return { "X-PM-Access-Key": id, "X-PM-Timestamp": timestamp,
-        "X-PM-Signature": sign(null, Buffer.from(timestamp + method + path.split("?")[0]), key).toString("base64") };
-    } catch { throw failure("credentials_invalid"); }
-  }
-  private async request(path: string, method = "GET", body?: unknown, authenticated = false): Promise<unknown> {
-    const headers = { "Content-Type": "application/json", ...(authenticated ? this.auth(method, path) : {}) };
-    return guarded(method !== "GET", async () => {
-      const response = await this.transport(`https://${authenticated ? "api" : "gateway"}.polymarket.us${path}`, {
-        method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      if (!response.ok) throw failure(`http_${response.status}`, method !== "GET" && !rejectedStatus(response.status));
-      return await response.json();
-    });
-  }
-  private mapMarket(raw: unknown): Market {
-    const m = object(raw), sides = array(m.marketSides).map(object);
-    if (sides.length !== 2 || sides.filter(s => s.long === true).length !== 1 || sides.filter(s => s.long === false).length !== 1 || sides.some(s => s.marketSideType !== "MARKET_SIDE_TYPE_INSTRUMENT")) throw failure("unsupported_market");
-    const tick = m.orderPriceMinTickSize == null ? undefined : price(m.orderPriceMinTickSize);
-    const minimum = m.minimumTradeQty == null ? undefined : number(m.minimumTradeQty);
-    if (tick === 0 || minimum === 0) throw failure("unsupported_response");
-    return { venue: this.venue, id: text(m.slug), title: text(m.question ?? m.title), rules: text(m.description),
-      category: category([m.category, ...array(m.tags ?? []).map(t => object(t).slug)]),
-      yesBid: m.bestBidQuote == null ? null : usd(m.bestBidQuote, true), yesAsk: m.bestAskQuote == null ? null : usd(m.bestAskQuote, true),
-      closesAt: m.endDate == null ? undefined : text(m.endDate), tickSize: tick == null ? undefined : String(tick), minSize: minimum };
-  }
-  async discover(selected: Category[], next?: string) {
-    return guarded(false, async () => {
-      const offset = next === undefined ? 0 : number(next);
-      if (!Number.isSafeInteger(offset) || offset > 2_147_483_547) throw failure("invalid_cursor");
-      const page = object(await this.request(`/v1/markets?active=true&closed=false&limit=100&offset=${offset}`));
-      const raw = array(page.markets), markets: Market[] = [];
-      for (const item of raw) {
-        try {
-          const m = this.mapMarket(item);
-          if (!selected.length || selected.includes(m.category as Category)) markets.push(m);
-        } catch (e) { if (!(e instanceof ExchangeError) || e.code !== "unsupported_market") throw e; }
-      }
-      return { markets, cursor: raw.length === 100 ? String(offset + raw.length) : undefined };
-    });
-  }
-  private async detail(id: string) {
-    const raw = object(object(await this.request(`/v1/market/slug/${encodeURIComponent(id)}`)).market);
-    const market = this.mapMarket(raw);
-    if (market.id !== id) throw failure("unsupported_response");
-    return { raw, market };
-  }
-  private async book(id: string) {
-    const book = object(object(await this.request(`/v1/markets/${encodeURIComponent(id)}/book`)).marketData);
-    if (book.marketSlug !== id) throw failure("unsupported_response");
-    return book;
-  }
-  async market(id: string) {
-    return guarded(false, async () => {
-      const { market } = await this.detail(id), book = await this.book(id);
-      const best = (levels: unknown, bid: boolean) => {
-        const prices = array(levels).map(raw => { const l = object(raw); return { price: usd(l.px, true), size: number(l.qty) }; }).filter(l => l.size > 0).map(l => l.price);
-        return prices.length ? (bid ? Math.max(...prices) : Math.min(...prices)) : null;
-      };
-      market.yesBid = best(book.bids, true); market.yesAsk = best(book.offers, false);
-      return market;
-    });
-  }
-  async place(order: OrderRequest): Promise<OrderResult> {
-    validateOrder(order, this.venue);
-    this.auth("POST", "/v1/orders");
-    if (order.tokenId) throw failure("unsupported_token");
-    const { raw, market } = await guarded(false, () => this.detail(order.marketId));
-    const book = await guarded(false, () => this.book(order.marketId));
-    if (raw.active !== true || raw.closed !== false || book.state !== "MARKET_STATE_OPEN") throw failure("market_not_tradable");
-    const yesPrice = Number((order.outcome === "yes" ? order.price : 1 - order.price).toFixed(12));
-    if (!market.tickSize || !market.minSize || yesPrice < 0.01 || yesPrice > 0.99 || !aligned(yesPrice, Number(market.tickSize)) || !aligned(order.quantity, market.minSize)) throw failure("invalid_order");
-    return guarded(true, async () => {
-      // The retail API does not expose a client order ID or idempotency key.
-      const r = object(await this.request("/v1/orders", "POST", {
-        marketSlug: order.marketId, type: "ORDER_TYPE_LIMIT", price: { value: String(yesPrice), currency: "USD" }, quantity: order.quantity,
-        tif: order.expiresAt ? "TIME_IN_FORCE_GOOD_TILL_DATE" : "TIME_IN_FORCE_GOOD_TILL_CANCEL",
-        ...(order.expiresAt ? { goodTillTime: order.expiresAt } : {}), participateDontInitiate: order.postOnly,
-        outcomeSide: order.outcome === "yes" ? "OUTCOME_SIDE_YES" : "OUTCOME_SIDE_NO",
-        action: order.action === "buy" ? "ORDER_ACTION_BUY" : "ORDER_ACTION_SELL",
-        manualOrderIndicator: "MANUAL_ORDER_INDICATOR_AUTOMATIC",
-      }, true));
-      const id = text(r.id);
-      // An ID acknowledges receipt, not acceptance. Read the exchange state before reporting it.
-      try { return await this.order(id); } catch { throw failure("write_reconciliation_failed", true); }
-    });
-  }
-  async cancel(id: string): Promise<void> {
-    const raw = object(object(await this.request(`/v1/order/${encodeURIComponent(id)}`, "GET", undefined, true)).order);
-    if (raw.id !== id) throw failure("unsupported_response");
-    const slug = text(raw.marketSlug);
-    return guarded(true, async () => {
-      object(await this.request(`/v1/order/${encodeURIComponent(id)}/cancel`, "POST", { marketSlug: slug }, true));
-      let result: OrderResult;
-      try { result = await this.order(id); } catch { throw failure("write_reconciliation_failed", true); }
-      if (result.status !== "canceled") throw failure("cancel_not_confirmed", result.status === "open");
-    });
-  }
-  async order(id: string): Promise<OrderResult> {
-    return guarded(false, async () => {
-      const r = object(object(await this.request(`/v1/order/${encodeURIComponent(id)}`, "GET", undefined, true)).order);
-      if (r.id !== id) throw failure("unsupported_response");
-      const statuses: Record<string, OrderResult["status"]> = {
-        ORDER_STATE_NEW: "open", ORDER_STATE_PARTIALLY_FILLED: "open", ORDER_STATE_PENDING_NEW: "open",
-        ORDER_STATE_PENDING_REPLACE: "open", ORDER_STATE_PENDING_CANCEL: "open", ORDER_STATE_PENDING_RISK: "open",
-        ORDER_STATE_FILLED: "filled", ORDER_STATE_CANCELED: "canceled", ORDER_STATE_EXPIRED: "canceled", ORDER_STATE_REJECTED: "rejected",
-      };
-      const state = text(r.state);
-      const status = Object.hasOwn(statuses, state) ? statuses[state] : undefined;
-      const filled = number(r.cumQuantity), original = number(r.quantity), remaining = number(r.leavesQuantity);
-      if (!status || filled > original || remaining + filled > original + 1e-8 || status === "filled" && (remaining !== 0 || filled !== original)) throw failure("unsupported_response");
-      if (r.outcomeSide !== "OUTCOME_SIDE_YES" && r.outcomeSide !== "OUTCOME_SIDE_NO") throw failure("unsupported_response");
-      const average = r.avgPx == null || filled === 0 ? undefined : usd(r.avgPx, true);
-      return { orderId: id, status, filledQuantity: filled,
-        averagePrice: average == null ? undefined : r.outcomeSide === "OUTCOME_SIDE_NO" ? Number((1 - average).toFixed(12)) : average,
-        fees: r.commissionNotionalTotalCollected == null ? undefined : usd(r.commissionNotionalTotalCollected) };
-    });
-  }
-  async positions(): Promise<Position[]> {
-    return guarded(false, async () => {
-      const positions: Position[] = [], seen = new Set<string>();
-      let next: string | undefined;
-      do {
-        const page = object(await this.request(`/v1/portfolio/positions?limit=100${next ? `&cursor=${encodeURIComponent(next)}` : ""}`, "GET", undefined, true));
-        for (const [slug, raw] of Object.entries(object(page.positions))) {
-          const p = object(raw), quantity = number(p.netPositionDecimal, true);
-          if (quantity) positions.push({ marketId: text(slug), outcome: quantity > 0 ? "yes" : "no", quantity: Math.abs(quantity) });
-        }
-        next = cursor(page.nextCursor);
-        if (page.eof === false && !next || next && seen.has(next)) throw failure("unsupported_response");
-        if (next) seen.add(next);
-      } while (next);
-      return positions;
-    });
-  }
-  async balance() {
-    return guarded(false, async () => {
-      const page = object(await this.request("/v1/account/balances", "GET", undefined, true));
-      const rows = array(page.balances);
-      if (!rows.length) return 0;
-      const balances = rows.map(object).filter(b => b.currency === "USD");
-      if (balances.length !== 1) throw failure("unsupported_response");
-      return number(balances[0]!.buyingPower);
-    });
-  }
-}
 export function createExchanges(): Record<Venue, Exchange> {
-  return { kalshi: new KalshiExchange(), polymarket: new PolymarketExchange() };
+  return { kalshi: new KalshiExchange() };
 }
