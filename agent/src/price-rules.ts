@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { AgentService, Trade } from "./service";
+import type { AgentService } from "./service";
 import type { Market, OrderResult } from "./types";
 
 const price=z.number().gt(0).lt(1);
@@ -63,6 +63,9 @@ export class PriceRules {
    let quote:number|null;
    try {
     if(!reconciled.has(strategy.id)){await this.service.reconcile(strategy.id);reconciled.add(strategy.id);}
+    if(rule.kind!=="entry"&&!this.service.ledger(strategy.id).positions.some(position=>position.venue==="kalshi"&&position.marketId===rule.marketId&&position.outcome===rule.outcome&&position.quantity>0)) {
+     this.service.store.exec("UPDATE price_rules SET status='canceled',error='Position is no longer held',updated_at=? WHERE group_key=? AND status='waiting'",now(),row.group_key);continue;
+    }
     const market=await this.service.exchanges.kalshi.market(rule.marketId);
     const bid=rule.outcome==="yes"?market.yesBid:market.yesAsk===null?null:1-market.yesAsk;
     const ask=rule.outcome==="yes"?market.yesAsk:market.yesBid===null?null:1-market.yesBid;

@@ -43,3 +43,17 @@ test("uncertain execution is never replayed by later price-rule ticks",async()=>
  const {service:s,rule,writes}=setup(true);await s.priceRules.create({...rule,kind:"entry",triggerPrice:.6});await s.priceRules.process();await s.priceRules.process();
  expect(writes()).toBe(1);expect(s.trades()[0]?.status).toBe("unknown");expect(s.priceRules.list()[0]?.status).toBe("uncertain");
 });
+
+test("cancel while checking a quote prevents submission, and a changed mode never retargets a rule",async()=>{
+ const {service:s,rule}=setup();const [row]=await s.priceRules.create({...rule,kind:"entry",triggerPrice:.6});
+ let resolve!:(market:Market)=>void;s.exchanges.kalshi.market=()=>new Promise(done=>{resolve=done;});
+ const checking=s.priceRules.process();await Promise.resolve();await Promise.resolve();
+ s.priceRules.cancel("econ",row!.id);resolve({venue:"kalshi",id:"CPI",title:"CPI",category:"economics",yesBid:.48,yesAsk:.5,yesBidSize:500,yesAskSize:500,volume24hContracts:20000,rules:"Official release"});await checking;expect(s.trades()).toHaveLength(0);
+ const other=setup(true);other.service.saveStrategy({...other.service.strategy("econ"),mode:"paper"});await other.service.priceRules.create({...other.rule,kind:"entry",triggerPrice:.6});other.service.saveStrategy({...other.service.strategy("econ"),mode:"live"});await other.service.priceRules.process();expect(other.service.priceRules.list()[0]?.status).toBe("failed");expect(other.writes()).toBe(0);
+});
+
+test("closing a holding cancels waiting protection before a later re-entry",async()=>{
+ const {service:s,rule,buy}=setup();await buy();await s.priceRules.create({...rule,kind:"protection",takeProfitPrice:.7,stopLossPrice:.3});
+ await s.submit({operationId:"manual-exit",strategyId:"econ",venue:"kalshi",marketId:"CPI",outcome:"yes",action:"sell",quantity:2,price:.48,rationale:"Close holding"});
+ await s.priceRules.process();expect(s.priceRules.list().map(row=>row.status)).toEqual(["canceled","canceled"]);expect(s.trades()).toHaveLength(2);
+});

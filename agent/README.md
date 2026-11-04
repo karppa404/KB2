@@ -36,3 +36,15 @@ The package reads root `.env`, then `agent/.env`, without overriding variables a
 ## Files
 
 `state/agents.db` stores strategy configuration, intent/result ledger, runs, feedback, wakes and equity marks. `state/models/` stores editable model sources. Back up state privately. `KB2_AGENT_DB` overrides the DB path and `KB2_AGENT_PORT` changes the dashboard port. Model source remains under this package's ignored state directory.
+
+## Trade table and price rules
+
+The desk opens on a trade table. **Current** shows KB2-owned holdings; **Pending** shows resting/uncertain orders and waiting/executing price rules; **Past** shows executions and closed or failed records. Executed buys remain in Past as order history while their resulting holdings appear in Current. Old records without a market snapshot show “Not recorded” for their event strike.
+
+The Event strike column comes from Kalshi's market metadata: greater/less thresholds, ranges, functional definitions and custom strikes. Threshold units come from the market's title and resolution rules; a 3% CPI strike is not a $0.03 contract price. Strike metadata is captured with new trade intents and pending rules, including zero and negative thresholds.
+
+Use **Entry / exit rule** to queue a target entry or an exit. **Set exits** on a holding creates linked take-profit and stop-loss rules. Entry compares the selected outcome's executable ask; exits compare its bid. Entries trigger at or below the target, take-profit at or above it, and stop-loss at or below it. Exit limit prices use the observed bid minus the configured offset; entries use the target as their limit. All submissions still pass strategy budgets, inventory, liquidity and execution-mode controls. A triggered rule never retries an uncertain write under a new ID.
+
+These are KB2 polling rules, **not exchange-native stops**. The T3 minute clock must be installed and online, and the strategy must be enabled. `claim_due_runs` (and the CLI `claim`) checks price rules even when no daily research or follow-up is due, so existing KB2 clock prompts still work. The optional research follow-up toggle does not disable explicitly saved price rules. Pause the strategy or cancel a waiting rule to stop it.
+
+A linked exit cancels its sibling when one submits, even if the limit order has not filled. Partial fills, fast markets or a tight offset can leave exposure; inspect the Pending view and reconcile orders. Waiting protection is canceled if a tick observes the holding has been closed. Cancel old rules before replacing a holding. A crashed executing rule or uncertain trade remains locked for review; do not create replacement intents until its exchange outcome is known. Rules expire within 30 days and never change a strategy's paper/live mode.
