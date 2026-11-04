@@ -208,7 +208,7 @@ export class KalshiExchange implements Exchange {
       number(result.reduced_by);
     });
   }
-  async order(id: string): Promise<OrderResult> {
+  async order(id: string, outcome: "yes" | "no" = "yes"): Promise<OrderResult> {
     return guarded(false, async () => {
       const r = await this.rawOrder(id);
       const statuses: Record<string, OrderResult["status"]> = { resting: "open", executed: "filled", canceled: "canceled" };
@@ -217,7 +217,9 @@ export class KalshiExchange implements Exchange {
       if (!status) throw failure("unsupported_response");
       const filled = number(r.fill_count_fp), remaining = number(r.remaining_count_fp);
       if (status === "filled" && remaining !== 0) throw failure("unsupported_response");
-      return { orderId: id, status, filledQuantity: filled, fees: number(r.taker_fees_dollars) + number(r.maker_fees_dollars) };
+      const yesAverage=filled===0?undefined:(number(r.taker_fill_cost_dollars)+number(r.maker_fill_cost_dollars))/filled;
+      if(yesAverage!==undefined&&(yesAverage<0||yesAverage>1))throw failure("unsupported_response");
+      return { orderId: id, status, filledQuantity: filled, averagePrice:yesAverage===undefined?undefined:outcome==="no"?1-yesAverage:yesAverage, fees: number(r.taker_fees_dollars) + number(r.maker_fees_dollars) };
     });
   }
   async positions(): Promise<Position[]> {

@@ -160,7 +160,7 @@ describe("Kalshi", () => {
   });
   test("maps order states and rejects future states", async () => {
     let state = "resting";
-    const io = transport(() => ({ order: { order_id: "order-id", status: state, fill_count_fp: "2.00", remaining_count_fp: "0.00", taker_fees_dollars: "0.01", maker_fees_dollars: "0.02" } }));
+    const io = transport(() => ({ order: { order_id: "order-id", status: state, fill_count_fp: "2.00", remaining_count_fp: "0.00", taker_fill_cost_dollars:"0.40", maker_fill_cost_dollars:"0.20", taker_fees_dollars: "0.01", maker_fees_dollars: "0.02" } }));
     const exchange = new KalshiExchange({ env: kalshiEnv, fetch: io.fetch });
     for (const [upstream, status] of [["resting", "open"], ["executed", "filled"], ["canceled", "canceled"]] as const) { state = upstream!; expect((await exchange.order("order-id")).status).toBe(status!); }
     for (const unsupported of ["future", "constructor"]) { state = unsupported; await error(exchange.order("order-id"), "unsupported_response"); }
@@ -295,4 +295,11 @@ test("existing kb2 API ID and private-key path configuration authenticates", asy
   expect(credentialsStatus(env).kalshi.configured).toBe(true);
   expect(await new KalshiExchange({env,fetch:t.fetch}).balance()).toBe(1);
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("Kalshi reconciliation uses cumulative fill cost for the requested YES/NO leg",async()=>{
+ const io=transport(()=>({order:{order_id:"O",status:"resting",fill_count_fp:"2.00",remaining_count_fp:"8.00",taker_fill_cost_dollars:"0.40",maker_fill_cost_dollars:"0.20",taker_fees_dollars:"0.01",maker_fees_dollars:"0.00"}}));
+ const exchange=new KalshiExchange({env:kalshiEnv,fetch:io.fetch});
+ expect((await exchange.order("O","yes")).averagePrice).toBeCloseTo(.3);
+ expect((await exchange.order("O","no")).averagePrice).toBeCloseTo(.7);
 });

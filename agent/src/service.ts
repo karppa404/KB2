@@ -122,25 +122,25 @@ export class AgentService {
     }
     return this.store.one<Trade>("SELECT * FROM trades WHERE id=?",r.operationId)!;
   }
-  private paperResult(r:TradeInput,m:Market):OrderResult {
+  private paperResult(r:TradeInput,m:Market,resting=false):OrderResult {
     const bid=r.outcome==="yes"?m.yesBid:(m.yesAsk===null?null:1-m.yesAsk);
     const ask=r.outcome==="yes"?m.yesAsk:(m.yesBid===null?null:1-m.yesBid);
     const crosses=r.action==="buy"?(ask!==null&&r.price>=ask):(bid!==null&&r.price<=bid);
-    if(r.postOnly&&crosses) return {orderId:`paper-${r.operationId}`,status:"rejected",filledQuantity:0};
-    return {orderId:`paper-${r.operationId}`,status:crosses?"filled":"open",filledQuantity:crosses?r.quantity:0,averagePrice:crosses?(r.action==="buy"?ask!:bid!):undefined,fees:0};
+    if(!resting&&r.postOnly&&crosses) return {orderId:`paper-${r.operationId}`,status:"rejected",filledQuantity:0};
+    return {orderId:`paper-${r.operationId}`,status:crosses?"filled":"open",filledQuantity:crosses?r.quantity:0,averagePrice:crosses?(resting?r.price:r.action==="buy"?ask!:bid!):undefined,fees:0};
   }
-  private setResult(tradeId:string,result:OrderResult) {
+  private setResult(tradeId:string,result:OrderResult,expected?:Trade) {
     if(!Number.isFinite(result.filledQuantity)||result.filledQuantity<0) throw new Error("Invalid exchange fill");
     const t=this.store.one<Trade>("SELECT * FROM trades WHERE id=?",tradeId)!; const r=parse<TradeInput>(t.request);
     if(result.filledQuantity>r.quantity+1e-8 || (result.averagePrice!==undefined&&(!Number.isFinite(result.averagePrice)||result.averagePrice<0||result.averagePrice>1)) || (result.fees!==undefined&&(!Number.isFinite(result.fees)||result.fees<0))) throw new Error("Invalid exchange execution values");
-    this.store.exec("UPDATE trades SET status=?,result=?,updated_at=? WHERE id=?",result.status,JSON.stringify(result),time(),tradeId);
+    this.store.exec("UPDATE trades SET status=?,result=?,updated_at=? WHERE id=? AND status=? AND result IS ?",result.status,JSON.stringify(result),time(),tradeId,(expected??t).status,(expected??t).result);
   }
   private owned(strategyId:string,tradeId:string) {this.strategy(strategyId);const t=this.store.one<Trade>("SELECT * FROM trades WHERE id=? AND strategy_id=?",tradeId,strategyId);if(!t) throw new Error("Trade does not belong to strategy");return t;}
   async cancel(strategyId:string,tradeId:string) {
     const t=this.owned(strategyId,tradeId); if(t.status!=="open") throw new Error("Only known open orders can be canceled");
     const r=parse<TradeInput>(t.request), result=parse<OrderResult>(t.result!);
-    if(t.mode==="live") {if(!this.liveAllowed) throw new Error("Live execution disabled");await this.exchanges[r.venue].cancel(result.orderId);const latest=await this.exchanges[r.venue].order(result.orderId);this.setResult(t.id,latest);}
-    else this.setResult(t.id,{...result,status:"canceled"});
+    if(t.mode==="live") {if(!this.liveAllowed) throw new Error("Live execution disabled");await this.exchanges[r.venue].cancel(result.orderId);const latest=await this.exchanges[r.venue].order(result.orderId,r.outcome);this.setResult(t.id,latest,t);}
+    else this.setResult(t.id,{...result,status:"canceled"},t);
     return this.owned(strategyId,tradeId);
   }
   async reconcile(strategyId:string) {
@@ -148,9 +148,9 @@ export class AgentService {
     for(const t of this.trades(strategyId)) {
       if(t.status!=="open") continue;
       const r=parse<TradeInput>(t.request), prior=parse<OrderResult>(t.result!);
-      if(t.mode==="live") this.setResult(t.id,await this.exchanges[r.venue].order(prior.orderId));
-      else if(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()) this.setResult(t.id,{...prior,status:"canceled"});
-      else this.setResult(t.id,this.paperResult(r,await this.exchanges[r.venue].market(r.marketId)));
+      if(t.mode==="live") this.setResult(t.id,await this.exchanges[r.venue].order(prior.orderId,r.outcome),t);
+      else if(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()) this.setResult(t.id,{...prior,status:"canceled"},t);
+      else this.setResult(t.id,this.paperResult(r,await this.exchanges[r.venue].market(r.marketId),true),t);
     }
     return this.trades(strategyId);
   }
@@ -174,9 +174,10 @@ export class AgentService {
         if(this.store.one("SELECT id FROM runs WHERE strategy_id=? AND status='running'",s.id)) continue;
         const clock=localClock(now,s.timezone); const [h,m]=s.dailyAt.split(":").map(Number); const since=clock.minute-(h!*60+m!);
         const due=s.autoReactivate?this.store.one<{id:string;reason:string}>("SELECT id,reason FROM wakes WHERE strategy_id=? AND status='pending' AND at<=? ORDER BY at LIMIT 1",s.id,now.toISOString()):undefined;
-        const daily=since>=0&&since<120&&!this.store.one("SELECT id FROM runs WHERE due_key=?",`${s.id}:${clock.date}`);
+        const dueDate=since<0?new Date(Date.parse(clock.date+"T00:00:00Z")-86400000).toISOString().slice(0,10):clock.date;
+        const daily=(since+1440)%1440<120&&!this.store.one("SELECT id FROM runs WHERE due_key=?",`${s.id}:${dueDate}`);
         if(!daily&&!due) continue;
-        const runId=randomUUID(), key=daily?`${s.id}:${clock.date}`:`wake:${due!.id}`;
+        const runId=randomUUID(), key=daily?`${s.id}:${dueDate}`:`wake:${due!.id}`;
         this.store.exec("INSERT INTO runs(id,strategy_id,due_key,status,created_at) VALUES(?,?,?,'running',?)",runId,s.id,key,now.toISOString());
         if(!daily&&due)this.store.exec("UPDATE wakes SET status='claimed' WHERE id=?",due.id);
         work.push({runId,strategy:s,reason:daily?"daily exploration":due!.reason,feedback:this.feedback(s.id),ledger:this.ledger(s.id)});

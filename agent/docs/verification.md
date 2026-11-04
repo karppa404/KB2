@@ -2,7 +2,7 @@
 
 Observed November 4, 2026:
 
-- New package: 54 tests passed, 0 failed; 594 assertions. Includes actual stdio MCP initialization and its configure/model/feedback/wake/snapshot/run lifecycle, mock exchange transports, all YES/NO buy/sell mappings, Ed25519/RSA signing, uncertainty, idempotency, budgets, inventory, timezone/DST and same-origin HTTP checks.
+- New package: 59 tests passed, 0 failed; 612 assertions. Includes actual stdio MCP initialization and its configure/model/feedback/wake/snapshot/run lifecycle, mock exchange transports, all YES/NO buy/sell mappings, Ed25519/RSA signing, uncertainty, idempotency, budgets, inventory, timezone/DST, midnight catch-up, stale-refresh/cancel races, resting maker fills and same-origin HTTP checks.
 - Agent TypeScript check passed. A clean checkout rebased on main installed dependencies and ran the package checks successfully.
 - Existing working-copy kb2 tests: 103 passed, 0 failed; 609 assertions. Those existing uncommitted changes are outside this PR.
 - Actual pandas/NumPy/scikit-learn example execution passed; see modeling.md. Its dataset is synthetic and establishes plumbing only.

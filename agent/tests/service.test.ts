@@ -59,3 +59,29 @@ test("restart preserves uncertain intents and fixed starting cash",async()=>{
  await expect(s.submit({...trade,operationId:"retry"})).rejects.toThrow("uncertain");
  expect(()=>s.saveStrategy({...s.strategy("weather"),initialCashUsd:5000})).toThrow("starting cash");
 });
+
+test("a resting paper maker fills at its quoted price when the book moves",async()=>{
+ const s=setup();await s.submit({...trade,price:.4,postOnly:true,expiresAt:new Date(Date.now()+60000).toISOString()});
+ s.exchanges.kalshi.market=async()=>({...market,yesAsk:.35});
+ await s.reconcile("weather");expect(s.trades()[0]?.status).toBe("filled");expect(s.ledger("weather").positions[0]?.quantity).toBe(10);expect(s.ledger("weather").cash).toBe(996);
+});
+test("a slow stale refresh cannot overwrite newer fills",async()=>{
+ const s=setup(true);await s.submit(trade);
+ let resolveOld!:(result:any)=>void;let calls=0;
+ s.exchanges.kalshi.order=async()=>++calls===1?await new Promise(resolve=>{resolveOld=resolve;}):{orderId:"O",status:"filled",filledQuantity:10,averagePrice:.3};
+ const old=s.reconcile("weather");await s.reconcile("weather");resolveOld({orderId:"O",status:"open",filledQuantity:0});await old;
+ expect(s.trades()[0]?.status).toBe("filled");expect(s.ledger("weather").positions[0]?.quantity).toBe(10);expect(s.ledger("weather").cash).toBe(997);
+});
+test("a slow paper refresh cannot resurrect a canceled order",async()=>{
+ const s=setup();await s.submit({...trade,price:.4});let resolveMarket!:(m:Market)=>void;
+ s.exchanges.kalshi.market=()=>new Promise(resolve=>{resolveMarket=resolve;});
+ const refresh=s.reconcile("weather");await s.cancel("weather","one");resolveMarket({...market,yesAsk:.35});await refresh;
+ expect(s.trades()[0]?.status).toBe("canceled");expect(s.ledger("weather").positions).toHaveLength(0);
+});
+test("late-night daily sessions catch up once after local midnight",()=>{
+ const s=setup();s.saveStrategy({...s.strategy("weather"),dailyAt:"23:30"});
+ const now=new Date("2026-11-05T06:30:00Z");const claims=s.claimDue(now);expect(claims).toHaveLength(1);
+ const row=s.store.one<{due_key:string}>("SELECT due_key FROM runs WHERE id=?",claims[0].runId);expect(row?.due_key).toBe("weather:2026-11-04");
+ s.finishRun(claims[0].runId,"Caught up");expect(s.claimDue(new Date("2026-11-05T07:00:00Z"))).toHaveLength(0);
+ const later=setup();later.saveStrategy({...later.strategy("weather"),dailyAt:"23:30"});expect(later.claimDue(new Date("2026-11-05T08:00:00Z"))).toHaveLength(0);
+});

@@ -21,7 +21,7 @@ export interface Exchange {
   market(id: string): Promise<Market>;
   place(order: OrderRequest): Promise<OrderResult>;
   cancel(orderId: string): Promise<void>;
-  order(orderId: string): Promise<OrderResult>;
+  order(orderId: string, outcome?: "yes" | "no"): Promise<OrderResult>;
   positions(): Promise<Position[]>;
   balance(): Promise<number>;
 }
