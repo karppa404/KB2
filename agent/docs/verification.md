@@ -2,7 +2,7 @@
 
 Observed November 4, 2026:
 
-- New package: 45 tests passed, 0 failed; 391 assertions. Includes actual stdio MCP initialization and its configure/model/feedback/wake/snapshot/run lifecycle, mock exchange transports, all YES/NO buy/sell mappings, Ed25519/RSA signing, uncertainty, idempotency, budgets, inventory, timezone/DST, midnight catch-up, stale-refresh/cancel races, resting maker fills and same-origin HTTP checks.
+- New package: 46 tests passed, 0 failed; 395 assertions. Includes actual stdio MCP initialization and its configure/model/feedback/wake/snapshot/run lifecycle, mock exchange transports, all YES/NO buy/sell mappings, Ed25519/RSA signing, uncertainty, idempotency, budgets, inventory, timezone/DST, midnight catch-up, stale-refresh/cancel races, resting maker fills and same-origin HTTP checks.
 - Agent TypeScript check passed. A clean checkout rebased on main installed dependencies and ran the package checks successfully.
 - Existing working-copy kb2 tests: 103 passed, 0 failed; 609 assertions. Those existing uncommitted changes are outside this PR.
 - Actual pandas/NumPy/scikit-learn example execution passed; see modeling.md. Its dataset is synthetic and establishes plumbing only.
@@ -14,3 +14,5 @@ No live orders were placed, canceled or modified. No unattended schedule was act
 Run the same package checks with `cd agent && bun install --frozen-lockfile && bun run python:setup && bun run typecheck && bun run test`. The agent CI workflow runs these checks on Linux/Python 3.12. Local proof used macOS/Bun 1.3.14/Python 3.14.
 
 Kalshi-only change: removed the other venue adapter and its tests. Added enforced non-sports and liquidity checks, a persisted default preset, and tests for legacy-setting migration. A headless browser verified the preset, absence of venue/sports selection, liquidity edit/save roundtrip, and a 390px layout without page errors. Existing modes, budgets and pauses are preserved.
+
+Review regression: unsupported historical venue orders are retained unchanged and skipped during reconciliation so later Kalshi orders still refresh. Sol raised this finding; the focused mixed-history regression and full suite pass after the fix.

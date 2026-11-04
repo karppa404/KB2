@@ -14,3 +14,7 @@ Round 1 requested changes. All four findings accepted:
 After fixes: 59 tests passed / 612 assertions; TypeScript and whitespace checks passed. No live writes.
 
 Round 2: APPROVE on the changed behavior and S1–S4. All four resolved; no regressions found. Reviewer independently reran 59 tests / 612 assertions, TypeScript and whitespace checks. No findings declined. Diff grew from 2,252 to 2,302 lines during the review fixes (before this documentation-only approval note). No usage metrics returned.
+
+## Kalshi-only follow-up
+
+One gpt-6.1-sol review round found S1 (should): an old unsupported-venue open order could block subsequent Kalshi reconciliation. Fixed with a venue guard that preserves the old row unchanged. The mixed-history regression confirms the Kalshi read executes and holdings update. Full suite: 46 tests / 395 assertions; typecheck passes. No findings declined and no usage metrics returned. The small fix was verified directly without another delegate round.
