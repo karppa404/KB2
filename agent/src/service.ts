@@ -4,7 +4,7 @@ import { Store } from "./store";
 import { ExchangeError, type Exchange, type Venue, type Market, type OrderRequest, type OrderResult } from "./types";
 
 export const categories = ["politics", "economics", "weather", "sports", "technology", "entertainment"] as const;
-const id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
+const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/);
 export const strategySchema = z.object({
   id, name: z.string().trim().min(1).max(100), instructions: z.string().trim().min(1).max(20000),
   categories: z.array(z.enum(categories)).min(1), venues: z.array(z.enum(["kalshi", "polymarket"])).min(1),
