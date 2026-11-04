@@ -285,3 +285,14 @@ describe("Polymarket US", () => {
     await error(new PolymarketExchange({ env: {}, fetch: shape.fetch }).market("market"), "unsupported_market");
   });
 });
+
+test("existing kb2 API ID and private-key path configuration authenticates", async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"kb2-key-alias-"));
+ try {
+  const path=join(dir,"key.pem");writeFileSync(path,pem,{mode:0o600});
+  const t=transport(call=>{expect((call.init.headers as Record<string,string>)["KALSHI-ACCESS-KEY"]).toBe("legacy-id");return {balance:100};});
+  const env={KALSHI_API_ID:"legacy-id",KALSHI_PRIVATE_KEY:path};
+  expect(credentialsStatus(env).kalshi.configured).toBe(true);
+  expect(await new KalshiExchange({env,fetch:t.fetch}).balance()).toBe(1);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

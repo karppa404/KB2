@@ -45,8 +45,11 @@ function price(value: unknown): number {
 function quote(value: unknown): number | null { return value == null ? null : price(value); }
 function cursor(value: unknown): string | undefined { return value == null || value === "" ? undefined : text(value); }
 function secret(env: Env, prefix: string): string | undefined {
-  const direct = env[`${prefix}_PRIVATE_KEY`];
-  if (direct) return direct.replace(/\\n/g, "\n").trim();
+  const direct = env[`${prefix}_PRIVATE_KEY_PEM`] ?? env[`${prefix}_PRIVATE_KEY`];
+  if (direct) {
+    if (direct.includes("-----BEGIN")) return direct.replace(/\\n/g, "\n").trim();
+    try { return readFileSync(direct, "utf8").trim(); } catch { throw failure("credentials_invalid"); }
+  }
   const file = env[`${prefix}_PRIVATE_KEY_FILE`] ?? env[`${prefix}_PRIVATE_KEY_PATH`];
   if (!file) return undefined;
   try { return readFileSync(file, "utf8").trim(); } catch { throw failure("credentials_invalid"); }
@@ -57,10 +60,10 @@ function polymarketSecret(env: Env): string | undefined {
   try { return readFileSync(env.POLYMARKET_API_SECRET_FILE, "utf8").trim(); } catch { throw failure("credentials_invalid"); }
 }
 export function credentialsStatus(env: Env = process.env) {
-  const hasKey = (p: string) => Boolean(env[`${p}_PRIVATE_KEY`] || env[`${p}_PRIVATE_KEY_FILE`] || env[`${p}_PRIVATE_KEY_PATH`]);
+  const hasKey = (p: string) => Boolean(env[`${p}_PRIVATE_KEY_PEM`] || env[`${p}_PRIVATE_KEY`] || env[`${p}_PRIVATE_KEY_FILE`] || env[`${p}_PRIVATE_KEY_PATH`]);
   const status = (missing: string[]) => ({ configured: missing.length === 0, missing });
   return {
-    kalshi: status([!(env.KALSHI_API_KEY_ID ?? env.KALSHI_API_KEY) && "KALSHI_API_KEY_ID", !hasKey("KALSHI") && "KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_FILE"].filter((v): v is string => Boolean(v))),
+    kalshi: status([!(env.KALSHI_API_ID ?? env.KALSHI_API_KEY_ID ?? env.KALSHI_API_KEY) && "KALSHI_API_KEY_ID", !hasKey("KALSHI") && "KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_FILE"].filter((v): v is string => Boolean(v))),
     polymarket: status([!env.POLYMARKET_API_KEY_ID && "POLYMARKET_API_KEY_ID", !(env.POLYMARKET_API_SECRET || env.POLYMARKET_API_SECRET_FILE) && "POLYMARKET_API_SECRET or POLYMARKET_API_SECRET_FILE"].filter((v): v is string => Boolean(v))),
   };
 }
@@ -101,7 +104,7 @@ export class KalshiExchange implements Exchange {
   private async request(path: string, method = "GET", body?: unknown, authenticated = false): Promise<unknown> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (authenticated) {
-      const id = this.env.KALSHI_API_KEY_ID ?? this.env.KALSHI_API_KEY;
+      const id = this.env.KALSHI_API_ID ?? this.env.KALSHI_API_KEY_ID ?? this.env.KALSHI_API_KEY;
       const pem = secret(this.env, "KALSHI");
       if (!id || !pem) throw failure("credentials_missing");
       try {
