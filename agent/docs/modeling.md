@@ -108,7 +108,7 @@ Strict output shape (no extra top-level or forecast keys):
 }
 ```
 
-`venue` is `kalshi` or `polymarket`. `probability` is the model's YES probability;
+`venue` must be `kalshi`. `probability` is the model's YES probability;
 `confidence` is a separately defined score, both finite and in `[0,1]`.
 Confidence has no universal statistical interpretation. The example uses zero
 to signal that it has not estimated confidence. Market IDs must be nonblank and

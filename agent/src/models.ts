@@ -7,7 +7,7 @@ import { z } from "zod";
 
 export const modelOutputSchema = z.strictObject({
   forecasts: z.array(z.strictObject({
-    venue: z.enum(["kalshi", "polymarket"]),
+    venue: z.literal("kalshi"),
     marketId: z.string().trim().min(1).max(256),
     probability: z.number().min(0).max(1),
     confidence: z.number().min(0).max(1),

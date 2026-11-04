@@ -1,14 +1,15 @@
-export type Venue = "kalshi" | "polymarket";
+export type Venue = "kalshi";
 export type Category = "politics" | "economics" | "weather" | "sports" | "technology" | "entertainment";
 export interface Market {
   venue: Venue; id: string; title: string; category: Category | "other";
-  yesToken?: string; noToken?: string; yesBid: number | null; yesAsk: number | null;
-  closesAt?: string; rules: string; tickSize?: string; minSize?: number; negRisk?: boolean;
+  volume24hContracts?: number; yesBidSize?: number; yesAskSize?: number;
+  yesBid: number | null; yesAsk: number | null;
+  closesAt?: string; rules: string; minSize?: number;
 }
 export interface OrderRequest {
   venue: Venue; marketId: string; outcome: "yes" | "no"; action: "buy" | "sell";
   price: number; quantity: number; postOnly: boolean; clientOrderId: string;
-  tokenId?: string; expiresAt?: string;
+  expiresAt?: string;
 }
 export interface OrderResult {
   orderId: string; status: "open" | "filled" | "canceled" | "rejected";

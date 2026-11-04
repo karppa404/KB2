@@ -3,11 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { Store } from "./store";
 import { ExchangeError, type Exchange, type Venue, type Market, type OrderRequest, type OrderResult } from "./types";
 
-export const categories = ["politics", "economics", "weather", "sports", "technology", "entertainment"] as const;
+export const categories = ["politics", "economics", "weather", "technology", "entertainment"] as const;
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/);
 export const strategySchema = z.object({
   id, name: z.string().trim().min(1).max(100), instructions: z.string().trim().min(1).max(20000),
-  categories: z.array(z.enum(categories)).min(1), venues: z.array(z.enum(["kalshi", "polymarket"])).min(1),
+  categories: z.array(z.enum(categories)).min(1), venues: z.array(z.literal("kalshi")).length(1).default(["kalshi"]),
+  liquidity: z.object({maxSpreadUsd:z.number().positive().max(1).default(.03),minVolume24hContracts:z.number().positive().default(10000),minBestDepthContracts:z.number().positive().default(100)}).strict().default({maxSpreadUsd:.03,minVolume24hContracts:10000,minBestDepthContracts:100}),
   timezone: z.string().refine(v => { try { new Intl.DateTimeFormat("en", {timeZone:v}); return true; } catch {return false;} }, "Use an IANA timezone"),
   dailyAt: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).default("03:00"),
   enabled: z.boolean().default(false), autoReactivate: z.boolean().default(false),
@@ -17,7 +18,7 @@ export const strategySchema = z.object({
 }).strict();
 export type Strategy = z.infer<typeof strategySchema>;
 export const tradeSchema = z.object({
-  operationId: id, strategyId: id, venue: z.enum(["kalshi", "polymarket"]), marketId: z.string().trim().min(1).max(300),
+  operationId: id, strategyId: id, venue: z.literal("kalshi"), marketId: z.string().trim().min(1).max(300),
   outcome: z.enum(["yes","no"]), action: z.enum(["buy","sell"]), price: z.number().gt(0).lt(1),
   quantity: z.number().positive().max(100000).refine(n => Math.abs(n*100-Math.round(n*100))<1e-7,"Quantity supports two decimals"),
   postOnly: z.boolean().default(false), expiresAt: z.iso.datetime().optional(), rationale: z.string().trim().min(1).max(5000),
@@ -30,10 +31,10 @@ const parse = <T>(v: string): T => JSON.parse(v);
 const money = (n:number) => Math.round(n*1e6)/1e6;
 export class AgentService {
   constructor(public store: Store, public exchanges: Record<Venue,Exchange>, private liveAllowed = process.env.KB2_ENABLE_LIVE === "true") {}
-  strategies(): Strategy[] { return this.store.all<{body:string}>("SELECT body FROM strategies ORDER BY id").map(r=>parse(r.body)); }
+  strategies(): Strategy[] { return this.store.all<{body:string}>("SELECT body FROM strategies ORDER BY id").map(r=>strategySchema.parse(parse(r.body))); }
   strategy(strategyId: string): Strategy {
     const row=this.store.one<{body:string}>("SELECT body FROM strategies WHERE id=?",strategyId);
-    if(!row) throw new Error("Strategy not found"); return parse(row.body);
+    if(!row) throw new Error("Strategy not found"); return strategySchema.parse(parse(row.body));
   }
   saveStrategy(input: unknown) {
     const s=strategySchema.parse(input);
@@ -76,7 +77,13 @@ export class AgentService {
   async discover(strategyId:string, venue:Venue, cursor?:string) {
     const s=this.strategy(strategyId); if(!s.venues.includes(venue)) throw new Error("Venue is not allowed by strategy");
     const result=await this.exchanges[venue].discover(s.categories,cursor);
-    return {...result,markets:result.markets.filter(m=>s.categories.includes(m.category as any))};
+    const markets:Market[]=[];
+    for(const candidate of result.markets) {
+      if(!s.categories.includes(candidate.category as any) || candidate.volume24hContracts===undefined || candidate.volume24hContracts<s.liquidity.minVolume24hContracts)continue;
+      const current=await this.exchanges[venue].market(candidate.id);
+      if(s.categories.includes(current.category as any)&&!liquidityIssue(current,s)&&(!current.closesAt||Date.parse(current.closesAt)>Date.now()))markets.push(current);
+    }
+    return {...result,markets};
   }
   async submit(input: unknown) {
     const r=tradeSchema.parse(input); const fingerprint=createHash("sha256").update(JSON.stringify(r)).digest("hex");
@@ -92,7 +99,8 @@ export class AgentService {
     const market=await this.exchanges[r.venue].market(r.marketId);
     if(!s.categories.includes(market.category as any)) throw new Error("Market category is not allowed or could not be verified");
     if(market.closesAt && Date.parse(market.closesAt)<=Date.now()) throw new Error("Market is closed");
-    const request: OrderRequest={...r,clientOrderId:r.operationId,tokenId:r.outcome==="yes"?market.yesToken:market.noToken};
+    if(r.action==="buy") {const issue=liquidityIssue(market,s,r.quantity);if(issue)throw new Error(issue);}
+    const request: OrderRequest={...r,clientOrderId:r.operationId};
     const now=time();
     const inserted=this.store.atomic(()=>{
       const repeated=this.store.one<Trade>("SELECT * FROM trades WHERE id=?",r.operationId);
@@ -148,6 +156,7 @@ export class AgentService {
     for(const t of this.trades(strategyId)) {
       if(t.status!=="open") continue;
       const r=parse<TradeInput>(t.request), prior=parse<OrderResult>(t.result!);
+      if(r.venue!=="kalshi")continue; // Retain unsupported historical orders without blocking Kalshi refreshes.
       if(t.mode==="live") this.setResult(t.id,await this.exchanges[r.venue].order(prior.orderId,r.outcome),t);
       else if(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()) this.setResult(t.id,{...prior,status:"canceled"},t);
       else this.setResult(t.id,this.paperResult(r,await this.exchanges[r.venue].market(r.marketId),true),t);
@@ -199,4 +208,14 @@ export function localClock(date:Date,timezone:string) {
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(date);
   const get=(type:string)=>parts.find(p=>p.type===type)!.value;
   return {date:`${get("year")}-${get("month")}-${get("day")}`,minute:Number(get("hour"))*60+Number(get("minute"))};
+}
+
+export function liquidityIssue(market:Market,strategy:Strategy,quantity=0):string|null {
+  const {yesBid:bid,yesAsk:ask,yesBidSize:bidSize,yesAskSize:askSize,volume24hContracts:volume}=market;
+  if(bid===null||ask===null||!Number.isFinite(bid)||!Number.isFinite(ask)||bid<=0||ask>=1||ask<bid)return "Liquidity check failed: valid two-sided quotes required";
+  if(ask-bid>strategy.liquidity.maxSpreadUsd+1e-8)return "Liquidity check failed: spread exceeds limit";
+  if(volume===undefined||!Number.isFinite(volume)||volume<strategy.liquidity.minVolume24hContracts)return "Liquidity check failed: 24-hour volume below minimum or unavailable";
+  const depth=Math.max(strategy.liquidity.minBestDepthContracts,quantity);
+  if(bidSize===undefined||askSize===undefined||!Number.isFinite(bidSize)||!Number.isFinite(askSize)||Math.min(bidSize,askSize)<depth)return "Liquidity check failed: best bid/ask depth below minimum or order size";
+  return null;
 }

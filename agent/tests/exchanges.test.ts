@@ -3,7 +3,7 @@ import { constants, generateKeyPairSync, verify } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createExchanges, credentialsStatus, KalshiExchange, PolymarketExchange } from "../src/exchanges";
+import { createExchanges, credentialsStatus, KalshiExchange } from "../src/exchanges";
 import { ExchangeError, type OrderRequest } from "../src/types";
 
 type Call = { url: URL; init: RequestInit; body: Record<string, unknown> | undefined };
@@ -21,24 +21,9 @@ function transport(handler: (call: Call) => unknown) {
 }
 const ed = generateKeyPairSync("ed25519");
 const pem = ed.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
-const seed = ed.privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
 const kalshiEnv = { KALSHI_API_KEY_ID: "test-key", KALSHI_PRIVATE_KEY: pem };
-const polyEnv = { POLYMARKET_API_KEY_ID: "test-key", POLYMARKET_API_SECRET: seed.toString("base64") };
-const order = (venue: "kalshi" | "polymarket", changes: Partial<OrderRequest> = {}): OrderRequest => ({ venue, marketId: "market", outcome: "yes", action: "buy", price: 0.42, quantity: 10, postOnly: true, clientOrderId: "unique-id", ...changes });
-const km = { ticker: "market", title: "Sports weather politics in a title", market_type: "binary", event_ticker: "event", rules_primary: "Rules", rules_secondary: "Details", yes_bid_dollars: "0.4100", yes_ask_dollars: "0.4400" };
-const pm = { slug: "market", question: "Politics in a title", description: "Rules", category: "sports", tags: [], active: true, closed: false,
-  orderPriceMinTickSize: 0.01, minimumTradeQty: 0.01,
-  marketSides: [{ long: true, marketSideType: "MARKET_SIDE_TYPE_INSTRUMENT" }, { long: false, marketSideType: "MARKET_SIDE_TYPE_INSTRUMENT" }],
-  bestBidQuote: { value: "0.4", currency: "USD" }, bestAskQuote: { value: "0.5", currency: "USD" } };
-const polyOrder = (state = "ORDER_STATE_NEW", extra = {}) => ({ id: "order-id", marketSlug: "market", state, quantity: 10, cumQuantity: 0, leavesQuantity: 10, outcomeSide: "OUTCOME_SIDE_YES", ...extra });
-const polyBook = { marketSlug: "market", state: "MARKET_STATE_OPEN", bids: [{ px: { value: "0.40", currency: "USD" }, qty: "10" }, { px: { value: "0.41", currency: "USD" }, qty: "2" }], offers: [{ px: { value: "0.45", currency: "USD" }, qty: "4" }] };
-function polyTransport(write: (c: Call) => unknown) {
-  return transport(c => {
-    if (c.url.pathname === "/v1/market/slug/market") return { market: pm };
-    if (c.url.pathname === "/v1/markets/market/book") return { marketData: polyBook };
-    return write(c);
-  });
-}
+const order = (venue: "kalshi", changes: Partial<OrderRequest> = {}): OrderRequest => ({ venue, marketId: "market", outcome: "yes", action: "buy", price: 0.42, quantity: 10, postOnly: true, clientOrderId: "unique-id", ...changes });
+const km = { ticker: "market", title: "Sports weather politics in a title", market_type: "binary", event_ticker: "event", rules_primary: "Rules", rules_secondary: "Details", yes_bid_dollars: "0.4100", yes_ask_dollars: "0.4400", volume_24h_fp:"12000.00" };
 async function error(promise: Promise<unknown>, code: string, uncertain = false) {
   try { await promise; throw new Error("Expected failure"); } catch (e) {
     expect(e).toBeInstanceOf(ExchangeError);
@@ -48,52 +33,21 @@ async function error(promise: Promise<unknown>, code: string, uncertain = false)
 }
 
 describe("credential handling", () => {
-  test("metadata never contains identifiers or secrets; factory implements both venues", () => {
-    const status = credentialsStatus({ ...kalshiEnv, ...polyEnv });
-    expect(status.kalshi.configured).toBe(true); expect(status.polymarket.configured).toBe(true);
-    expect(JSON.stringify(status)).not.toContain("test-key"); expect(JSON.stringify(status)).not.toContain(pem);
-    expect(credentialsStatus({}).polymarket.missing).toContain("POLYMARKET_API_KEY_ID");
-    expect(Object.keys(createExchanges())).toEqual(["kalshi", "polymarket"]);
-  });
-  test("no credentials: authenticated methods fail before transport", async () => {
-    const io = transport(() => { throw new Error("should not send"); });
-    for (const exchange of [new KalshiExchange({ env: {}, fetch: io.fetch }), new PolymarketExchange({ env: {}, fetch: io.fetch })]) {
-      await error(exchange.balance(), "credentials_missing");
-      await error(exchange.positions(), "credentials_missing");
-      await error(exchange.place(order(exchange.venue)), "credentials_missing");
-    }
-    expect(io.calls).toHaveLength(0);
-  });
-  test("supports key files and the official 64-byte US secret format", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "exchange-keys-"));
-    try {
-      writeFileSync(join(dir, "kalshi"), pem);
-      writeFileSync(join(dir, "us"), Buffer.concat([seed, ed.publicKey.export({ format: "der", type: "spki" }).subarray(-32)]).toString("base64"));
-      const io = transport(c => {
-        const h = c.init.headers as Record<string, string>;
-        const prefix = c.url.host.includes("kalshi") ? "KALSHI-ACCESS-" : "X-PM-";
-        const ts = h[prefix + (prefix === "X-PM-" ? "Timestamp" : "TIMESTAMP")]!;
-        const sig = h[prefix + (prefix === "X-PM-" ? "Signature" : "SIGNATURE")]!;
-        expect(verify(null, Buffer.from(ts + "GET" + c.url.pathname), ed.publicKey, Buffer.from(sig, "base64"))).toBe(true);
-        return c.url.host.includes("kalshi") ? { balance_dollars: "12.34" } : { balances: [{ currency: "USD", buyingPower: 12.34 }] };
-      });
-      expect(await new KalshiExchange({ env: { KALSHI_API_KEY_ID: "id", KALSHI_PRIVATE_KEY_FILE: join(dir, "kalshi") }, fetch: io.fetch }).balance()).toBe(12.34);
-      expect(await new PolymarketExchange({ env: { POLYMARKET_API_KEY_ID: "id", POLYMARKET_API_SECRET_FILE: join(dir, "us") }, fetch: io.fetch }).balance()).toBe(12.34);
-    } finally { rmSync(dir, { recursive: true, force: true }); }
-  });
-  test("invalid keys and upstream messages cannot leak secrets", async () => {
-    const io = transport(() => { throw new Error("TOP-SECRET-KEY"); });
-    await error(new PolymarketExchange({ env: { POLYMARKET_API_KEY_ID: "id", POLYMARKET_API_SECRET: "TOP-SECRET-KEY" }, fetch: io.fetch }).balance(), "credentials_invalid");
-    await error(new KalshiExchange({ env: { KALSHI_API_KEY_ID: "id", KALSHI_PRIVATE_KEY_FILE: "/does-not-exist" }, fetch: io.fetch }).balance(), "credentials_invalid");
-    try { await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).balance(); } catch (e) { expect(String(e)).not.toContain("TOP-SECRET"); }
-  });
+ test("only Kalshi is exposed and metadata never contains credentials",()=>{
+  const status=credentialsStatus(kalshiEnv);expect(status.kalshi.configured).toBe(true);
+  expect(Object.keys(createExchanges())).toEqual(["kalshi"]);expect(JSON.stringify(status)).not.toContain("test-key");expect(JSON.stringify(status)).not.toContain(pem);
+ });
+ test("missing credentials fail before transport",async()=>{
+  const io=transport(()=>{throw Error("must not send");});const exchange=new KalshiExchange({env:{},fetch:io.fetch});
+  await error(exchange.balance(),"credentials_missing");await error(exchange.place(order("kalshi")),"credentials_missing");expect(io.calls).toHaveLength(0);
+ });
 });
 
 describe("request validation", () => {
   test("invalid orders and unsupported precision never reach a transport", async () => {
     const io = transport(() => { throw new Error("must not send"); });
     const kalshi = new KalshiExchange({ env: kalshiEnv, fetch: io.fetch });
-    await error(kalshi.place(order("polymarket")), "invalid_order");
+    await error(kalshi.place({...order("kalshi"),venue:"polymarket"} as any), "invalid_order");
     await error(kalshi.place(order("kalshi", { price: NaN })), "invalid_order");
     await error(kalshi.place(order("kalshi", { quantity: 0.001 })), "invalid_precision");
     await error(kalshi.place(order("kalshi", { expiresAt: "2020-01-01T00:00:00Z" })), "invalid_order");
@@ -122,7 +76,7 @@ describe("Kalshi", () => {
       return { series: { category: "Weather" } };
     });
     const result = await new KalshiExchange({ env: {}, fetch: io.fetch }).market("market");
-    expect(result.yesBid).toBe(0.42); expect(result.yesAsk).toBe(0.45); expect(result.category).toBe("weather");
+    expect(result.yesBid).toBe(0.42); expect(result.yesAsk).toBe(0.45); expect(result.category).toBe("weather");expect(result.yesBidSize).toBe(2);expect(result.yesAskSize).toBe(2);expect(result.volume24hContracts).toBe(12000);
   });
   test.each(["ed25519", "rsa"] as const)("signs %s requests and maps all four directions to V2", async algorithm => {
     const pair = algorithm === "rsa" ? generateKeyPairSync("rsa", { modulusLength: 2048 }) : ed;
@@ -177,112 +131,6 @@ describe("Kalshi", () => {
       try { await pending; throw new Error("Expected failure"); } catch (e) { expect(e).toBeInstanceOf(ExchangeError); expect((e as ExchangeError).uncertain).toBe(true); }
       expect(io.calls).toHaveLength(1);
     }
-  });
-});
-
-describe("Polymarket US", () => {
-  test("public reads use gateway, trusted taxonomy and dollar books", async () => {
-    const io = polyTransport(c => {
-      expect(c.url.host).toBe("gateway.polymarket.us"); expect(c.init.headers).not.toHaveProperty("X-PM-Access-Key");
-      return { markets: [pm, { ...pm, slug: "unknown", category: "other sports words", tags: [] }, { ...pm, slug: "conflict", tags: [{ slug: "politics" }] }] };
-    });
-    const exchange = new PolymarketExchange({ env: {}, fetch: io.fetch });
-    expect((await exchange.discover([])).markets.map(m => m.category)).toEqual(["sports", "other", "other"]);
-    expect((await exchange.discover(["politics"])).markets).toEqual([]);
-    const m = await exchange.market("market"); expect(m.yesBid).toBe(0.41); expect(m.yesAsk).toBe(0.45); expect(m.yesToken).toBeUndefined();
-    expect(io.calls.every(c => c.url.host === "gateway.polymarket.us")).toBe(true);
-  });
-  test("discovery offsets remain correct when category filtering empties a page", async () => {
-    const io = transport(c => { expect(c.url.searchParams.get("offset")).toBe("100"); return { markets: Array.from({ length: 100 }, () => pm) }; });
-    const result = await new PolymarketExchange({ env: {}, fetch: io.fetch }).discover(["weather"], "100");
-    expect(result.markets).toEqual([]); expect(result.cursor).toBe("200");
-  });
-  test.each(["yes", "no"] as const)("%s placement signs, uses YES price, maker flag and reads acceptance", async outcome => {
-    const io = polyTransport(c => {
-      expect(c.url.host).toBe("api.polymarket.us");
-      const h = c.init.headers as Record<string, string>;
-      expect(verify(null, Buffer.from(h["X-PM-Timestamp"]! + c.init.method! + c.url.pathname), ed.publicKey, Buffer.from(h["X-PM-Signature"]!, "base64"))).toBe(true);
-      if (c.init.method === "POST") {
-        expect(c.body?.price).toEqual({ value: outcome === "yes" ? "0.42" : "0.58", currency: "USD" });
-        expect(c.body?.outcomeSide).toBe(outcome === "yes" ? "OUTCOME_SIDE_YES" : "OUTCOME_SIDE_NO");
-        expect(c.body?.action).toBe("ORDER_ACTION_BUY"); expect(c.body?.participateDontInitiate).toBe(true);
-        expect(c.body).not.toHaveProperty("clientOrderId"); return { id: "order-id" };
-      }
-      return { order: polyOrder("ORDER_STATE_PARTIALLY_FILLED", { outcomeSide: outcome === "yes" ? "OUTCOME_SIDE_YES" : "OUTCOME_SIDE_NO", cumQuantity: 2, leavesQuantity: 8, avgPx: { value: outcome === "yes" ? "0.41" : "0.59", currency: "USD" } }) };
-    });
-    const r = await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).place(order("polymarket", { outcome }));
-    expect(r.status).toBe("open"); expect(r.filledQuantity).toBe(2); expect(r.averagePrice).toBe(0.41);
-    expect(io.calls.filter(c => c.init.method === "POST")).toHaveLength(1);
-  });
-  test("sell NO uses YES price and an expiring maker order without rounding quantity", async () => {
-    const expiresAt = new Date(Date.now() + 3600_000).toISOString();
-    const io = polyTransport(c => {
-      if (c.init.method === "POST") {
-        expect(c.body?.price).toEqual({ value: "0.58", currency: "USD" });
-        expect(c.body?.action).toBe("ORDER_ACTION_SELL"); expect(c.body?.outcomeSide).toBe("OUTCOME_SIDE_NO");
-        expect(c.body?.goodTillTime).toBe(expiresAt); expect(c.body?.tif).toBe("TIME_IN_FORCE_GOOD_TILL_DATE");
-        expect(c.body?.quantity).toBe(0.25); return { id: "order-id" };
-      }
-      return { order: polyOrder("ORDER_STATE_FILLED", { quantity: 0.25, cumQuantity: 0.25, leavesQuantity: 0, outcomeSide: "OUTCOME_SIDE_NO", avgPx: { value: "0.58", currency: "USD" } }) };
-    });
-    const result = await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).place(order("polymarket", { action: "sell", outcome: "no", quantity: 0.25, expiresAt }));
-    expect(result.status).toBe("filled"); expect(result.averagePrice).toBe(0.42);
-  });
-  test("US transport loss and malformed acknowledgements never trigger retries", async () => {
-    for (const handle of [() => { throw new Error("network lost"); }, () => ({})]) {
-      const io = polyTransport(handle);
-      try { await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).place(order("polymarket")); throw new Error("Expected failure"); }
-      catch (e) { expect(e).toBeInstanceOf(ExchangeError); expect((e as ExchangeError).uncertain).toBe(true); }
-      expect(io.calls.filter(c => c.init.method === "POST")).toHaveLength(1);
-    }
-  });
-  test("exchange rejection after acknowledgement stays rejected; unreadable acknowledgement is uncertain", async () => {
-    const io = polyTransport(c => c.init.method === "POST" ? { id: "order-id" } : { order: polyOrder("ORDER_STATE_REJECTED", { leavesQuantity: 0 }) });
-    expect((await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).place(order("polymarket"))).status).toBe("rejected");
-    const bad = polyTransport(c => c.init.method === "POST" ? { id: "order-id" } : new Response("", { status: 404 }));
-    await error(new PolymarketExchange({ env: polyEnv, fetch: bad.fetch }).place(order("polymarket")), "write_reconciliation_failed", true);
-  });
-  test.each([400, 401, 429, 409, 500])("write HTTP %i is rejected or uncertain", async status => {
-    const io = polyTransport(() => new Response("", { status }));
-    await error(new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).place(order("polymarket")), `http_${status}`, [409, 500].includes(status));
-    expect(io.calls.filter(c => c.init.method === "POST")).toHaveLength(1);
-  });
-  test("cancellation verifies final state; pending cancellation is uncertain", async () => {
-    for (const confirmed of [true, false]) {
-      let canceled = false;
-      const io = transport(c => {
-        if (c.init.method === "POST") { canceled = true; expect(c.url.pathname).toBe("/v1/order/order-id/cancel"); expect(c.body).toEqual({ marketSlug: "market" }); return {}; }
-        return { order: polyOrder(canceled && confirmed ? "ORDER_STATE_CANCELED" : "ORDER_STATE_NEW") };
-      });
-      const pending = new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).cancel("order-id");
-      if (confirmed) await pending; else await error(pending, "cancel_not_confirmed", true);
-    }
-  });
-  test("fractional signed positions paginate and balance uses USD buying power", async () => {
-    const io = transport(c => {
-      if (c.url.pathname.endsWith("balances")) return { balances: [{ currency: "USD", buyingPower: 12.34, currentBalance: 99 }, { currency: "EUR", buyingPower: 100 }] };
-      return c.url.searchParams.has("cursor") ? { positions: { b: { netPositionDecimal: "-0.25" } }, eof: true } : { positions: { a: { netPositionDecimal: "2.50" } }, eof: false, nextCursor: "next" };
-    });
-    const exchange = new PolymarketExchange({ env: polyEnv, fetch: io.fetch });
-    expect(await exchange.positions()).toEqual([{ marketId: "a", outcome: "yes", quantity: 2.5 }, { marketId: "b", outcome: "no", quantity: 0.25 }]);
-    expect(await exchange.balance()).toBe(12.34);
-  });
-  test("an authenticated empty currency list means zero available dollars", async () => {
-    const io = transport(() => ({ balances: [] }));
-    expect(await new PolymarketExchange({ env: polyEnv, fetch: io.fetch }).balance()).toBe(0);
-  });
-  test("fails closed for unknown states, currencies, fractional step mismatch, token IDs and changed market shapes", async () => {
-    const unknown = transport(() => ({ order: polyOrder("ORDER_STATE_FUTURE") }));
-    await error(new PolymarketExchange({ env: polyEnv, fetch: unknown.fetch }).order("order-id"), "unsupported_response");
-    const currency = transport(() => ({ market: { ...pm, bestBidQuote: { value: "0.4", currency: "EUR" } } }));
-    await error(new PolymarketExchange({ env: {}, fetch: currency.fetch }).market("market"), "unsupported_currency");
-    const io = polyTransport(() => { throw new Error("must not write"); });
-    const exchange = new PolymarketExchange({ env: polyEnv, fetch: io.fetch });
-    await error(exchange.place(order("polymarket", { quantity: 0.015 })), "invalid_order");
-    await error(exchange.place(order("polymarket", { tokenId: "international-token" })), "unsupported_token");
-    expect(io.calls.every(c => c.init.method === "GET")).toBe(true);
-    const shape = transport(() => ({ market: { ...pm, marketSides: [] } }));
-    await error(new PolymarketExchange({ env: {}, fetch: shape.fetch }).market("market"), "unsupported_market");
   });
 });
 

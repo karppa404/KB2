@@ -3,7 +3,7 @@ import {handler} from "../src/server";
 import {AgentService} from "../src/service";
 import {Store} from "../src/store";
 const exchange:any={};
-const service=new AgentService(new Store(":memory:"),{kalshi:exchange,polymarket:exchange});const handle=handler(service);
+const service=new AgentService(new Store(":memory:"),{kalshi:exchange});const handle=handler(service);
 const config={id:"test",name:"Test",instructions:"Wait for good evidence",timezone:"America/Chicago",venues:["kalshi"],categories:["weather"]};
 test("dashboard serves local assets and safe empty state",async()=>{
  for(const path of ['/','/app.js','/style.css','/api/state','/api/t3-plan']){const r=await handle(new Request('http://localhost:3100'+path));expect(r.status).toBe(200);expect(r.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");}

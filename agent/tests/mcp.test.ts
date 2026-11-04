@@ -6,7 +6,7 @@ import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 test("actual MCP stdio supports strategy setup, model, feedback, wakes and run lifecycle",async()=>{
  const dir=mkdtempSync(join(tmpdir(),'kb2-mcp-'));const client=new Client({name:'proof',version:'1'});
- const transport=new StdioClientTransport({command:process.execPath,args:['run',resolve(import.meta.dir,'../src/mcp.ts')],env:{PATH:process.env.PATH??'',KB2_AGENT_DB:join(dir,'state.db'),KB2_ENABLE_LIVE:'false',KALSHI_API_ID:'',KALSHI_PRIVATE_KEY:'',POLYMARKET_API_KEY_ID:'',POLYMARKET_API_SECRET:''},stderr:'pipe'});
+ const transport=new StdioClientTransport({command:process.execPath,args:['run',resolve(import.meta.dir,'../src/mcp.ts')],env:{PATH:process.env.PATH??'',KB2_AGENT_DB:join(dir,'state.db'),KB2_ENABLE_LIVE:'false',KALSHI_API_ID:'',KALSHI_PRIVATE_KEY:''},stderr:'pipe'});
  try{
   await client.connect(transport);const tools=await client.listTools();expect(tools.tools).toHaveLength(16);
   const call=async(name:string,args:any={})=>{const result=await client.callTool({name,arguments:args});expect(result.isError).not.toBe(true);return (result.structuredContent as any).result;};
