@@ -12,3 +12,5 @@ Round 1 requested changes. All four findings accepted:
 | S4 | should | Attribute after-midnight catch-up to the previous local date. Regression checks the due key, one-time claim and expired window. |
 
 After fixes: 59 tests passed / 612 assertions; TypeScript and whitespace checks passed. No live writes.
+
+Round 2: APPROVE on the changed behavior and S1–S4. All four resolved; no regressions found. Reviewer independently reran 59 tests / 612 assertions, TypeScript and whitespace checks. No findings declined. Diff grew from 2,252 to 2,302 lines during the review fixes (before this documentation-only approval note). No usage metrics returned.
