@@ -156,6 +156,7 @@ export class AgentService {
     for(const t of this.trades(strategyId)) {
       if(t.status!=="open") continue;
       const r=parse<TradeInput>(t.request), prior=parse<OrderResult>(t.result!);
+      if(r.venue!=="kalshi")continue; // Retain unsupported historical orders without blocking Kalshi refreshes.
       if(t.mode==="live") this.setResult(t.id,await this.exchanges[r.venue].order(prior.orderId,r.outcome),t);
       else if(r.expiresAt&&Date.parse(r.expiresAt)<=Date.now()) this.setResult(t.id,{...prior,status:"canceled"},t);
       else this.setResult(t.id,this.paperResult(r,await this.exchanges[r.venue].market(r.marketId),true),t);

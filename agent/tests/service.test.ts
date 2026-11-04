@@ -102,3 +102,15 @@ test("sports and other venues cannot be configured, and order size must fit visi
  s.exchanges.kalshi.market=async()=>({...market,yesBidSize:100,yesAskSize:100});
  await expect(s.submit({...trade,quantity:101,price:.01})).rejects.toThrow("depth");
 });
+
+test("unsupported historical orders remain unchanged and do not block Kalshi reconciliation",async()=>{
+ const s=setup(true);const now=new Date().toISOString();
+ const oldRequest=JSON.stringify({...trade,operationId:"legacy",venue:"polymarket"});
+ const oldResult=JSON.stringify({orderId:"legacy-order",status:"open",filledQuantity:0});
+ s.store.exec("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)","legacy","weather",oldRequest,"legacy-fingerprint","live","open",oldResult,now,now);
+ await s.submit(trade);let reads=0;
+ s.exchanges.kalshi.order=async()=>{reads++;return {orderId:"O",status:"filled",filledQuantity:10,averagePrice:.5};};
+ const before=s.trades()[0];await s.reconcile("weather");
+ expect(reads).toBe(1);expect(s.trades()[0]).toEqual(before);expect(s.trades()[1]?.status).toBe("filled");
+ expect(s.ledger("weather").positions.find(p=>p.venue==="kalshi")?.quantity).toBe(10);
+});
