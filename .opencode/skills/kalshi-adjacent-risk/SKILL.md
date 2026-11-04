@@ -44,7 +44,7 @@ Look for markets tied to the same underlying event, participants, geography, tim
 
 3. Research the thesis.
 
-Use Perplexity with `sonar-pro` for current catalysts, data releases, injuries, lineups, weather, official statements, polling, ratings, news risk, legal/regulatory risk, settlement-source context, and any category-specific facts that affect probability.
+Use the assistant’s built-in web search for current catalysts, data releases, injuries, lineups, weather, official statements, polling, ratings, news risk, legal/regulatory risk, settlement-source context, and any category-specific facts that affect probability.
 
 4. Pull market prices.
 
@@ -156,11 +156,7 @@ bun run src/cli/index.ts kalshi balance --pretty
 bun run src/cli/index.ts kalshi positions --pretty
 ```
 
-Research with Perplexity:
-
-```bash
-bun run src/cli/index.ts perplexity search "Research the current catalysts, official data sources, and market implications for this Kalshi thesis: <describe thesis>. Include citations and note settlement-rule risks." --model sonar-pro --max-tokens 2500 --pretty
-```
+Research using the assistant’s built-in web search, citing current sources and checking settlement rules.
 
 Buy one contract, immediate-or-cancel:
 

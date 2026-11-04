@@ -1,0 +1,10 @@
+{
+  "name": "kb2-local",
+  "interface": { "displayName": "KB2 Local" },
+  "plugins": [{
+    "name": "kb2-kalshi",
+    "source": { "source": "local", "path": "./plugins/kb2-kalshi" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+    "category": "Productivity"
+  }]
+}

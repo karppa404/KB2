@@ -1,4 +1,4 @@
-import { getBalance, getFills, getPositions } from "../kalshi";
+import { getBalance, getFills, getAllPositions } from "../kalshi";
 
 export interface DashboardPosition {
   ticker: string;
@@ -69,12 +69,14 @@ function centsToDollars(value: unknown): number {
 export async function getDashboardData(): Promise<DashboardData> {
   const [balanceResponse, positionsResponse, fillsResponse] = await Promise.all([
     getBalance(),
-    getPositions(),
+    getAllPositions(),
     getFills({ limit: 500 }),
   ]);
 
   const balance = balanceResponse as unknown as Record<string, unknown>;
-  const cash = asNumber(balance.balance_dollars) || centsToDollars(balance.balance);
+  const cash = balance.balance_dollars == null
+    ? centsToDollars(balance.balance)
+    : asNumber(balance.balance_dollars);
   const portfolioValue = centsToDollars(balance.portfolio_value);
   const equity = cash + portfolioValue;
 

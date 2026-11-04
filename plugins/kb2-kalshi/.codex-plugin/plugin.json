@@ -1,0 +1,6 @@
+{
+  "name": "kb2-kalshi",
+  "version": "0.1.0",
+  "description": "Kalshi markets, account data, search, risk, history and confirmed trading through KB2.",
+  "mcpServers": "./.mcp.json"
+}

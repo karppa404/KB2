@@ -1,11 +1,11 @@
 ---
 name: kb2-tools
-description: Use when another OpenCode instance needs to understand this repo's Kalshi, Perplexity, risk, history, and dashboard commands before making trades.
+description: Use when another OpenCode instance needs to understand this repo's Kalshi, risk, history, and dashboard commands before making trades.
 ---
 
 # KB2 Tools Reference
 
-This repo is a Bun TypeScript CLI and dashboard for Kalshi trading, Perplexity research, portfolio risk, and command history.
+This repo is a Bun TypeScript CLI and dashboard for Kalshi trading, portfolio risk, and command history.
 
 Run commands from the repo root:
 
@@ -19,10 +19,6 @@ Required for live Kalshi trading:
 
 - `KALSHI_API_ID`
 - `KALSHI_PRIVATE_KEY` or `KALSHI_PRIVATE_KEY_PEM`
-
-Required for Perplexity research:
-
-- Perplexity API key supported by `@perplexity-ai/perplexity_ai`
 
 Optional:
 
@@ -43,9 +39,18 @@ Run tests:
 bun test
 ```
 
-Note: this repo may not have test files. If `bun test` reports no matching test files, use typecheck and live CLI smoke tests.
+Tests use mocked trading calls and temporary history databases.
 
 ## Kalshi Commands
+
+Inspect live token budgets and endpoint costs:
+
+```bash
+bun run src/cli/index.ts kalshi limits --pretty
+bun run src/cli/index.ts kalshi endpoint-costs --pretty
+```
+
+Requests are paced using live Read/Write token budgets. Oversized batches are rejected locally. Explicit HTTP 429 responses use bounded exponential backoff. See README.md for scope and limitations.
 
 Balance:
 
@@ -125,23 +130,6 @@ Cancel order:
 bun run src/cli/index.ts kalshi cancel-order <orderId> --pretty
 ```
 
-## Perplexity Commands
-
-Use `sonar-pro` for market research:
-
-```bash
-bun run src/cli/index.ts perplexity search "Research the current catalysts, official data sources, and market implications for this Kalshi thesis: <describe thesis>. Include citations and note settlement-rule risks." --model sonar-pro --max-tokens 2500 --pretty
-```
-
-The response shape is:
-
-```json
-{
-  "answer": "...",
-  "citations": ["..."]
-}
-```
-
 ## Risk Commands
 
 Portfolio risk summary:
@@ -202,7 +190,7 @@ The dashboard polls every minute and includes:
 1. Run typecheck if code changed.
 2. Check balance and positions.
 3. Search target and adjacent markets.
-4. Research with Perplexity `sonar-pro`.
+4. Research with the assistant’s built-in web search and cite sources.
 5. Inspect market details and orderbooks.
 6. Apply the liquidity and volume gate from `kalshi-adjacent-risk`.
 7. Apply the resolution-rule gate from `kalshi-adjacent-risk`.

@@ -1,10 +1,12 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
   amendOrder,
   batchCancelOrders,
   batchCreateOrders,
   cancelOrder,
   getBalance,
+  getAccountLimits,
+  getEndpointCosts,
   getEvent,
   getEvents,
   getExchangeStatus,
@@ -37,8 +39,26 @@ function toBoolean(value: boolean | undefined): boolean | undefined {
   return value === undefined ? undefined : value;
 }
 
+function noPriceOption(): Option {
+  const option = new Option("--no-price <noPrice>", "NO price in cents");
+  // This is an outcome price, not Commander's default negated --price flag.
+  option.negate = false;
+  return option;
+}
+
 export function createKalshiCommand(): Command {
   const kalshi = new Command("kalshi").description("Kalshi trading and market commands");
+
+  for (const [name, description, run] of [
+    ["limits", "Show account tier and Read/Write token budgets", getAccountLimits],
+    ["endpoint-costs", "Show default and non-default request token costs", getEndpointCosts],
+  ] as const) {
+    kalshi.command(name).description(description)
+      .option("--pretty", "Print formatted output")
+      .action(async (options) => {
+        await runLoggedCommand({ command: `kalshi ${name}`, args: {}, pretty: options.pretty, run });
+      });
+  }
 
   kalshi
     .command("balance")
@@ -156,7 +176,7 @@ export function createKalshiCommand(): Command {
     .requiredOption("--side <side>")
     .requiredOption("--count <count>")
     .option("--yes-price <yesPrice>")
-    .option("--no-price <noPrice>")
+    .addOption(noPriceOption())
     .option("--expiration-ts <expirationTs>")
     .option("--time-in-force <timeInForce>")
     .option("--buy-max-cost <buyMaxCost>")
@@ -190,7 +210,7 @@ export function createKalshiCommand(): Command {
     .requiredOption("--side <side>")
     .requiredOption("--count <count>")
     .option("--yes-price <yesPrice>")
-    .option("--no-price <noPrice>")
+    .addOption(noPriceOption())
     .option("--expiration-ts <expirationTs>")
     .option("--time-in-force <timeInForce>")
     .option("--buy-max-cost <buyMaxCost>")
@@ -222,7 +242,7 @@ export function createKalshiCommand(): Command {
     .requiredOption("--side <side>")
     .requiredOption("--count <count>")
     .option("--yes-price <yesPrice>")
-    .option("--no-price <noPrice>")
+    .addOption(noPriceOption())
     .option("--expiration-ts <expirationTs>")
     .option("--time-in-force <timeInForce>")
     .option("--reduce-only", "Only sell existing positions", true)
@@ -410,7 +430,7 @@ export function createKalshiCommand(): Command {
     .command("amend-order <orderId>")
     .option("--count <count>")
     .option("--yes-price <yesPrice>")
-    .option("--no-price <noPrice>")
+    .addOption(noPriceOption())
     .option("--pretty", "Print formatted output")
     .action(async (orderId, options) => {
       const params = {

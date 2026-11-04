@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "kalshi": {
+      "command": "/Users/spro/.bun/bin/bun",
+      "args": ["run", "/Users/spro/code/kb2/src/mcp/server.ts"],
+      "cwd": "/Users/spro/code/kb2",
+      "enabled": true,
+      "default_tools_approval_mode": "approve",
+      "tools": {
+        "place_order": { "approval_mode": "prompt" },
+        "buy": { "approval_mode": "prompt" },
+        "sell": { "approval_mode": "prompt" },
+        "amend_order": { "approval_mode": "prompt" },
+        "cancel_order": { "approval_mode": "prompt" },
+        "batch_create": { "approval_mode": "prompt" },
+        "batch_cancel": { "approval_mode": "prompt" }
+      },
+      "env_vars": ["KALSHI_API_ID", "KALSHI_PRIVATE_KEY", "KALSHI_PRIVATE_KEY_PEM", "KALSHI_BASE_URL", "DB_PATH", "PATH"],
+      "startup_timeout_sec": 15,
+      "tool_timeout_sec": 120
+    }
+  }
+}

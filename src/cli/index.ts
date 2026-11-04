@@ -2,7 +2,6 @@ import "dotenv/config";
 import { Command } from "commander";
 import { getHistory, getHistoryByCommand } from "../db";
 import { createKalshiCommand } from "./kalshi";
-import { createPerplexityCommand } from "./perplexity";
 import { createRiskCommand } from "./risk";
 import { runLoggedCommand } from "./shared";
 
@@ -19,11 +18,10 @@ function parseJsonField(value: string | null): unknown {
 
 program
   .name("opencode")
-  .description("Agent CLI for Kalshi trading + research")
+  .description("Agent CLI for Kalshi trading")
   .version("0.1.0");
 
 program.addCommand(createKalshiCommand());
-program.addCommand(createPerplexityCommand());
 program.addCommand(createRiskCommand());
 
 program
@@ -33,7 +31,7 @@ program
   .option("--pretty", "Print formatted output")
   .action(async (options) => {
     const parsedLimit = Number(options.limit);
-    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
       throw new Error(`Invalid limit: ${options.limit}`);
     }
 
