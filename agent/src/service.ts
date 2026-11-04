@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { Store } from "./store";
+import { PriceRules } from "./price-rules";
 import { ExchangeError, type Exchange, type Venue, type Market, type OrderRequest, type OrderResult } from "./types";
 
 export const categories = ["politics", "economics", "weather", "technology", "entertainment"] as const;
@@ -30,7 +31,9 @@ const time = () => new Date().toISOString();
 const parse = <T>(v: string): T => JSON.parse(v);
 const money = (n:number) => Math.round(n*1e6)/1e6;
 export class AgentService {
-  constructor(public store: Store, public exchanges: Record<Venue,Exchange>, private liveAllowed = process.env.KB2_ENABLE_LIVE === "true") {}
+  priceRules:PriceRules;
+  constructor(public store: Store, public exchanges: Record<Venue,Exchange>, private liveAllowed = process.env.KB2_ENABLE_LIVE === "true") {this.priceRules=new PriceRules(this);}
+  get liveExecutionEnabled(){return this.liveAllowed;}
   strategies(): Strategy[] { return this.store.all<{body:string}>("SELECT body FROM strategies ORDER BY id").map(r=>strategySchema.parse(parse(r.body))); }
   strategy(strategyId: string): Strategy {
     const row=this.store.one<{body:string}>("SELECT body FROM strategies WHERE id=?",strategyId);
@@ -117,7 +120,8 @@ export class AgentService {
         const pending=this.trades(s.id).filter(t=>active.has(t.status)).reduce((n,t)=>{const q=parse<TradeInput>(t.request);return n+(q.action==="sell"&&q.venue===r.venue&&q.marketId===r.marketId&&q.outcome===r.outcome?q.quantity-(t.result?parse<OrderResult>(t.result).filledQuantity:0):0);},0);
         if(r.quantity>held-pending+1e-8) throw new Error("Sell exceeds strategy-owned holdings");
       }
-      this.store.exec("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)",r.operationId,s.id,JSON.stringify(r),fingerprint,s.mode,"submitting",null,now,now); return true;
+      this.store.exec("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)",r.operationId,s.id,JSON.stringify(r),fingerprint,s.mode,"submitting",null,now,now);
+      this.store.exec("INSERT INTO trade_markets VALUES(?,?)",r.operationId,JSON.stringify(market));return true;
     });
     if(!inserted) return this.store.one<Trade>("SELECT * FROM trades WHERE id=?",r.operationId)!;
     try {
@@ -201,7 +205,10 @@ export class AgentService {
     return {runId,status:failed?"failed":"completed"};
   }
   dashboard() {
-    return {at:time(),liveExecutionEnabled:this.liveAllowed,strategies:this.strategies().map(s=>({...s,ledger:this.ledger(s.id)})),trades:this.trades().slice(-200).reverse().map(t=>({...t,request:parse(t.request),result:t.result?parse(t.result):null})),feedback:this.store.all("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 100"),wakes:this.store.all("SELECT * FROM wakes WHERE status='pending' ORDER BY at"),runs:this.store.all("SELECT * FROM runs ORDER BY created_at DESC LIMIT 50"),snapshots:this.store.all("SELECT * FROM (SELECT * FROM snapshots ORDER BY id DESC LIMIT 2000) ORDER BY id")};
+    const markets=new Map(this.store.all<{trade_id:string;body:string}>("SELECT * FROM trade_markets").map(row=>[row.trade_id,parse<Market>(row.body)]));
+    const positionMarkets=new Map<string,Market>();
+    for(const trade of this.trades()){const market=markets.get(trade.id);if(market){const request=parse<TradeInput>(trade.request);positionMarkets.set(`${trade.strategy_id}:${request.venue}:${request.marketId}:${request.outcome}`,market);}}
+    return {priceRules:this.priceRules.list(),at:time(),liveExecutionEnabled:this.liveAllowed,strategies:this.strategies().map(s=>{const ledger=this.ledger(s.id);return {...s,ledger:{...ledger,positions:ledger.positions.map(p=>({...p,market:positionMarkets.get(`${s.id}:${p.venue}:${p.marketId}:${p.outcome}`)??null}))}};}),trades:this.trades().slice(-200).reverse().map(t=>({...t,market:markets.get(t.id)??null,request:parse(t.request),result:t.result?parse(t.result):null})),feedback:this.store.all("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 100"),wakes:this.store.all("SELECT * FROM wakes WHERE status='pending' ORDER BY at"),runs:this.store.all("SELECT * FROM runs ORDER BY created_at DESC LIMIT 50"),snapshots:this.store.all("SELECT * FROM (SELECT * FROM snapshots ORDER BY id DESC LIMIT 2000) ORDER BY id")};
   }
 }
 export function localClock(date:Date,timezone:string) {

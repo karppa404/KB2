@@ -23,7 +23,7 @@ const ed = generateKeyPairSync("ed25519");
 const pem = ed.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 const kalshiEnv = { KALSHI_API_KEY_ID: "test-key", KALSHI_PRIVATE_KEY: pem };
 const order = (venue: "kalshi", changes: Partial<OrderRequest> = {}): OrderRequest => ({ venue, marketId: "market", outcome: "yes", action: "buy", price: 0.42, quantity: 10, postOnly: true, clientOrderId: "unique-id", ...changes });
-const km = { ticker: "market", title: "Sports weather politics in a title", market_type: "binary", event_ticker: "event", rules_primary: "Rules", rules_secondary: "Details", yes_bid_dollars: "0.4100", yes_ask_dollars: "0.4400", volume_24h_fp:"12000.00" };
+const km = { ticker: "market", title: "Sports weather politics in a title", market_type: "binary", event_ticker: "event", rules_primary: "Rules", rules_secondary: "Details", yes_bid_dollars: "0.4100", yes_ask_dollars: "0.4400", volume_24h_fp:"12000.00", strike_type:"between", floor_strike:-5,cap_strike:0 };
 async function error(promise: Promise<unknown>, code: string, uncertain = false) {
   try { await promise; throw new Error("Expected failure"); } catch (e) {
     expect(e).toBeInstanceOf(ExchangeError);
@@ -76,7 +76,7 @@ describe("Kalshi", () => {
       return { series: { category: "Weather" } };
     });
     const result = await new KalshiExchange({ env: {}, fetch: io.fetch }).market("market");
-    expect(result.yesBid).toBe(0.42); expect(result.yesAsk).toBe(0.45); expect(result.category).toBe("weather");expect(result.yesBidSize).toBe(2);expect(result.yesAskSize).toBe(2);expect(result.volume24hContracts).toBe(12000);
+    expect(result.yesBid).toBe(0.42); expect(result.yesAsk).toBe(0.45); expect(result.category).toBe("weather");expect(result.yesBidSize).toBe(2);expect(result.yesAskSize).toBe(2);expect(result.volume24hContracts).toBe(12000);expect(result.strike).toMatchObject({type:"between",floor:-5,cap:0});
   });
   test.each(["ed25519", "rsa"] as const)("signs %s requests and maps all four directions to V2", async algorithm => {
     const pair = algorithm === "rsa" ? generateKeyPairSync("rsa", { modulusLength: 2048 }) : ed;

@@ -11,6 +11,8 @@ export class Store {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS strategies(id TEXT PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS trades(id TEXT PRIMARY KEY, strategy_id TEXT NOT NULL, request TEXT NOT NULL, fingerprint TEXT NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL, result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS trade_markets(trade_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS price_rules(id TEXT PRIMARY KEY,strategy_id TEXT NOT NULL,group_key TEXT NOT NULL,mode TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL,trade_id TEXT,error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY, strategy_id TEXT NOT NULL, trade_id TEXT, note TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, strategy_id TEXT NOT NULL, due_key TEXT UNIQUE NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT, summary TEXT);
       CREATE TABLE IF NOT EXISTS wakes(id TEXT PRIMARY KEY, strategy_id TEXT NOT NULL, at TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending');

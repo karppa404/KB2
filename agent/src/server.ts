@@ -1,5 +1,6 @@
 import { AgentService, strategySchema } from "./service";
 import { createService } from "./runtime";
+import { priceRuleSchema } from "./price-rules";
 import { t3Plan } from "./t3";
 import { z } from "zod";
 import { resolve } from "node:path";
@@ -21,6 +22,8 @@ export function handler(service:AgentService) {
    if(request.headers.get("origin")!==url.origin || !request.headers.get("content-type")?.startsWith("application/json"))return json({error:"Same-origin JSON required"},403);
    const body=await request.text();if(Buffer.byteLength(body)>50000)return json({error:"Request too large"},413);
    const input=JSON.parse(body);
+   if(url.pathname==="/api/price-rules")return json(await service.priceRules.create(priceRuleSchema.parse(input)));
+   if(url.pathname==="/api/cancel-rule"){const a=z.object({strategyId:z.string(),ruleId:z.string()}).strict().parse(input);return json(service.priceRules.cancel(a.strategyId,a.ruleId));}
    if(url.pathname==="/api/strategies") return json(service.saveStrategy(strategySchema.parse(input)));
    if(url.pathname==="/api/feedback") {const a=z.object({strategyId:z.string(),note:z.string().min(1).max(5000),tradeId:z.string().optional()}).strict().parse(input);return json(service.addFeedback(a.strategyId,a.note,a.tradeId));}
    if(url.pathname==="/api/reconcile"||url.pathname==="/api/snapshot") {const a=z.object({strategyId:z.string()}).strict().parse(input);return json(url.pathname.endsWith("snapshot")?await service.snapshot(a.strategyId):await service.reconcile(a.strategyId));}

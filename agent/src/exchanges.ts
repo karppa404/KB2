@@ -125,7 +125,8 @@ export class KalshiExchange implements Exchange {
       yesBid: quote(m.yes_bid_dollars), yesAsk: quote(m.yes_ask_dollars),
       rules: [text(m.rules_primary), typeof m.rules_secondary === "string" ? m.rules_secondary : ""].filter(Boolean).join("\n\n"),
       closesAt: m.close_time == null ? undefined : text(m.close_time), minSize: 0.01,
-      volume24hContracts: m.volume_24h_fp == null ? undefined : number(m.volume_24h_fp) };
+      volume24hContracts: m.volume_24h_fp == null ? undefined : number(m.volume_24h_fp),
+      strike:m.strike_type==null?undefined:{type:text(m.strike_type),floor:m.floor_strike==null?undefined:number(m.floor_strike,true),cap:m.cap_strike==null?undefined:number(m.cap_strike,true),description:typeof m.functional_strike==="string"?m.functional_strike:undefined,custom:m.custom_strike==null?undefined:object(m.custom_strike)} };
   }
   private async seriesCategory(series: unknown): Promise<Market["category"]> {
     const result = object(await this.request(`/series/${encodeURIComponent(text(series))}`));

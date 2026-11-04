@@ -1,10 +1,11 @@
 export type Venue = "kalshi";
 export type Category = "politics" | "economics" | "weather" | "sports" | "technology" | "entertainment";
+export interface MarketStrike {type:string;floor?:number;cap?:number;description?:string;custom?:Record<string,unknown>;}
 export interface Market {
   venue: Venue; id: string; title: string; category: Category | "other";
   volume24hContracts?: number; yesBidSize?: number; yesAskSize?: number;
   yesBid: number | null; yesAsk: number | null;
-  closesAt?: string; rules: string; minSize?: number;
+  closesAt?: string; rules: string; minSize?: number; strike?:MarketStrike;
 }
 export interface OrderRequest {
   venue: Venue; marketId: string; outcome: "yes" | "no"; action: "buy" | "sell";
