@@ -1,6 +1,7 @@
-import { getBalance, getPositions } from "../kalshi";
+import { getBalance, getAllPositions } from "../kalshi";
 
 export interface RiskSummary {
+  /** All monetary values in this summary are US dollars. */
   totalExposure: number;
   netPnl: number;
   largestPosition: { ticker: string; value: number } | null;
@@ -29,6 +30,10 @@ export function kellySize(opts: {
   const bankroll = opts.bankroll;
   const fraction = opts.fraction ?? 0.5;
 
+  if (![p, b, bankroll, fraction].every(Number.isFinite) || p < 0 || p > 1 || fraction < 0 || fraction > 1 || b < 0 || bankroll < 0) {
+    throw new Error("Kelly inputs require probability and fraction in [0, 1], and finite nonnegative odds and bankroll");
+  }
+
   if (b <= 0 || bankroll <= 0) return 0;
 
   const fStar = (p * (b + 1) - 1) / b;
@@ -38,32 +43,14 @@ export function kellySize(opts: {
 }
 
 export async function getRiskSummary(): Promise<RiskSummary> {
-  const [positionsResponse, balanceResponse] = await Promise.all([getPositions(), getBalance()]);
+  const [positionsResponse, balanceResponse] = await Promise.all([getAllPositions(), getBalance()]);
 
-  const positionCandidates = positionsResponse as unknown as {
-    market_positions?: Array<Record<string, unknown>>;
-    positions?: Array<Record<string, unknown>>;
-  };
-
-  const positions =
-    positionCandidates.market_positions ?? positionCandidates.positions ?? [];
+  const positions = positionsResponse.market_positions ?? [];
 
   const normalized = positions.map((position) => {
-    const value =
-      asNumber(position.value) ||
-      asNumber(position.market_value) ||
-      asNumber(position.notional_value) ||
-      asNumber(position.cost_basis);
-
-    const pnl =
-      asNumber(position.unrealized_pnl) ||
-      asNumber(position.pnl) ||
-      asNumber(position.realized_pnl);
-
-    const ticker =
-      (typeof position.ticker === "string" && position.ticker) ||
-      (typeof position.market_ticker === "string" && position.market_ticker) ||
-      "UNKNOWN";
+    const value = Math.abs(asNumber(position.market_exposure_dollars));
+    const pnl = asNumber(position.realized_pnl_dollars) - asNumber(position.fees_paid_dollars);
+    const ticker = position.ticker || "UNKNOWN";
 
     return { ticker, value, pnl };
   });
@@ -77,12 +64,9 @@ export async function getRiskSummary(): Promise<RiskSummary> {
     return current;
   }, null);
 
-  const balance = balanceResponse as unknown as Record<string, unknown>;
-  const availableCash =
-    asNumber(balance.balance) ||
-    asNumber(balance.available_cash) ||
-    asNumber(balance.available_balance) ||
-    0;
+  const availableCash = balanceResponse.balance_dollars == null
+    ? asNumber(balanceResponse.balance) / 100
+    : asNumber(balanceResponse.balance_dollars);
 
   const denominator = totalExposure + availableCash;
   const exposureRatio = denominator > 0 ? totalExposure / denominator : 0;
