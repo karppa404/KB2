@@ -35,3 +35,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 #sql files
 *.db
+# Portable plugin release artifacts and local credentials
+outputs/kalshi-plugin/
+outputs/kalshi-insights/
+outputs/kalshi-marketplace/
+outputs/kalshi-*.zip
+outputs/kalshi-*.zip.sha256
+*.pem
+*.key
+credentials.json

@@ -13,10 +13,12 @@ export interface CommandLog {
 }
 
 const defaultDbPath = "./data/log.db";
-const dbPath = resolve(Bun.env.DB_PATH ?? defaultDbPath);
+const dbPath = Bun.env.DB_PATH === ":memory:" ? ":memory:" : resolve(Bun.env.DB_PATH ?? defaultDbPath);
 mkdirSync(dirname(dbPath), { recursive: true });
 
 const db = new Database(dbPath);
+// CLI processes and Codex chats share this database, including schema initialization.
+db.exec("PRAGMA busy_timeout = 1000");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS command_log (

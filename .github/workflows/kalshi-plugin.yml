@@ -1,0 +1,29 @@
+name: Kalshi MCP release
+on:
+  pull_request:
+    paths: ['src/mcp/**', 'src/kalshi/**', 'src/risk/**', 'src/db/**', 'scripts/package-kalshi*', 'plugins/kalshi/**', 'docs/kalshi-plugin/**', 'package.json', 'bun.lock', 'tsconfig.json', '.github/workflows/kalshi-plugin.yml']
+  push:
+    branches: [main]
+    paths: ['src/mcp/**', 'src/kalshi/**', 'src/risk/**', 'src/db/**', 'scripts/package-kalshi*', 'plugins/kalshi/**', 'docs/kalshi-plugin/**', 'package.json', 'bun.lock', 'tsconfig.json', '.github/workflows/kalshi-plugin.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run test:mcp
+      - run: bun run typecheck
+      - run: bun run package:plugin
+      - name: Verify bundled stdio server
+        run: KALSHI_PORTABLE_TEST_ENTRY="$PWD/outputs/kalshi-plugin/server.js" bun --no-env-file test src/mcp/portable.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kalshi-mcp-packages
+          path: |
+            outputs/kalshi-*.zip
+            outputs/kalshi-*.zip.sha256

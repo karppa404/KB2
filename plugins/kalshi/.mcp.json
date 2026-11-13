@@ -1,0 +1,47 @@
+{
+  "mcpServers": {
+    "kalshi": {
+      "command": "bun",
+      "args": [
+        "--no-env-file",
+        "${PLUGIN_ROOT}/server.js"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "KALSHI_MCP_PORTABLE": "1"
+      },
+      "default_tools_approval_mode": "approve",
+      "tools": {
+        "place_order": {
+          "approval_mode": "prompt"
+        },
+        "buy": {
+          "approval_mode": "prompt"
+        },
+        "sell": {
+          "approval_mode": "prompt"
+        },
+        "amend_order": {
+          "approval_mode": "prompt"
+        },
+        "cancel_order": {
+          "approval_mode": "prompt"
+        },
+        "batch_create": {
+          "approval_mode": "prompt"
+        },
+        "batch_cancel": {
+          "approval_mode": "prompt"
+        },
+        "set_trading_mode": {
+          "approval_mode": "prompt"
+        },
+        "reset_paper_account": {
+          "approval_mode": "prompt"
+        }
+      },
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 120
+    }
+  }
+}

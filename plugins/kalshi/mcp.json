@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "kalshi": {
+      "type": "stdio",
+      "command": "bun",
+      "args": [
+        "--no-env-file",
+        "${PLUGIN_ROOT}/server.js"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "KALSHI_MCP_PORTABLE": "1"
+      }
+    }
+  }
+}
